@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document Search</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #167E27 0%, #0d5c1e 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 40px;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .stats {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 10px 20px;
+            border-radius: 8px;
+            display: inline-block;
+            margin-top: 10px;
+        }
+
+        .search-box {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            margin-bottom: 30px;
+        }
+
+        .search-input-container {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        #searchInput {
+            flex: 1;
+            padding: 15px 20px;
+            font-size: 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        #searchInput:focus {
+            border-color: #167E27;
+        }
+
+        #searchBtn {
+            padding: 15px 30px;
+            font-size: 16px;
+            background: #167E27;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        #searchBtn:hover {
+            transform: translateY(-2px);
+        }
+
+        #searchBtn:active {
+            transform: translateY(0);
+        }
+
+        .search-info {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .results-container {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            min-height: 200px;
+        }
+
+        .results-header {
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .results-count {
+            font-size: 18px;
+            color: #333;
+            font-weight: 600;
+        }
+
+        .result-item {
+            padding: 20px;
+            margin-bottom: 15px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+
+        .result-item:hover {
+            border-color: #167E27;
+            box-shadow: 0 5px 15px rgba(22, 126, 39, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .result-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .result-type {
+            display: inline-block;
+            padding: 4px 12px;
+            background: #167E27;
+            color: white;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .result-path {
+            font-size: 12px;
+            color: #999;
+            margin-bottom: 10px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .result-snippet {
+            font-size: 14px;
+            color: #666;
+            line-height: 1.6;
+            margin-bottom: 10px;
+        }
+
+        .result-snippet mark {
+            background-color: #fff59d;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-weight: 600;
+        }
+
+        .result-meta {
+            font-size: 12px;
+            color: #999;
+            display: flex;
+            gap: 20px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #167E27;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .no-results {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .file-icon {
+            font-size: 20px;
+        }
+
+        .filters-container {
+            background: white;
+            border-radius: 12px;
+            padding: 20px 30px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            margin-bottom: 30px;
+        }
+
+        .filters-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .filters-header h3 {
+            margin: 0;
+            color: #333;
+            font-size: 16px;
+        }
+
+        .filters-toggle {
+            color: #167E27;
+            font-size: 14px;
+        }
+
+        .filters-content {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+        }
+
+        .filters-content.hidden {
+            display: none;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .filter-group label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 4px;
+        }
+
+        .filter-group select,
+        .filter-group input[type="date"],
+        .filter-group input[type="number"] {
+            padding: 8px 12px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+            outline: none;
+        }
+
+        .filter-group select:focus,
+        .filter-group input:focus {
+            border-color: #167E27;
+        }
+
+        .checkbox-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .checkbox-item input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
+
+        .checkbox-item label {
+            font-size: 13px;
+            color: #666;
+            cursor: pointer;
+            margin: 0;
+        }
+
+        .filter-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .filter-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .filter-btn-apply {
+            background: #167E27;
+            color: white;
+        }
+
+        .filter-btn-clear {
+            background: #f5f5f5;
+            color: #666;
+        }
+
+        .filter-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        }
+
+        /* Sticky search bar */
+        .sticky-search {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(135deg, #167E27 0%, #0d5c1e 100%);
+            padding: 10px 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+            z-index: 1000;
+            display: none;
+            animation: slideDown 0.3s ease-out;
+        }
+
+        .sticky-search.visible {
+            display: block;
+        }
+
+        @keyframes slideDown {
+            from {
+                transform: translateY(-100%);
+            }
+            to {
+                transform: translateY(0);
+            }
+        }
+
+        .sticky-search-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .sticky-search-label {
+            color: white;
+            font-size: 14px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .sticky-search input {
+            flex: 1;
+            padding: 8px 15px;
+            font-size: 14px;
+            border: 2px solid white;
+            border-radius: 6px;
+            outline: none;
+            background-color: #f0f0f0;
+            color: #666;
+            cursor: default;
+        }
+
+        .sticky-search button {
+            padding: 8px 20px;
+            font-size: 14px;
+            background: white;
+            color: #167E27;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: transform 0.2s;
+        }
+
+        .sticky-search button:hover {
+            transform: scale(1.05);
+        }
+
+        /* Pagination */
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-top: 30px;
+            flex-wrap: wrap;
+        }
+
+        .pagination button {
+            padding: 8px 16px;
+            border: 1px solid #e0e0e0;
+            background: white;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 14px;
+        }
+
+        .pagination button:hover:not(:disabled) {
+            background: #167E27;
+            color: white;
+            border-color: #167E27;
+        }
+
+        .pagination button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .pagination .page-info {
+            padding: 8px 16px;
+            color: #666;
+            font-size: 14px;
+        }
+
+        /* Scroll buttons */
+        .scroll-buttons {
+            position: fixed;
+            right: 30px;
+            bottom: 30px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 999;
+        }
+
+        .scroll-btn {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #167E27 0%, #0d5c1e 100%);
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 20px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s;
+            display: none;
+        }
+
+        .scroll-btn.visible {
+            display: block;
+        }
+
+        .scroll-btn:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+        }
+
+        .scroll-btn:active {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body>
+    <!-- Sticky search bar -->
+    <div class="sticky-search" id="stickySearch">
+        <div class="sticky-search-content">
+            <span class="sticky-search-label">🔍 Search:</span>
+            <input type="text" id="stickySearchInput" placeholder="Search documents..." readonly>
+            <button onclick="scrollToTop()">↑ Top</button>
+        </div>
+    </div>
+
+    <!-- Scroll buttons -->
+    <div class="scroll-buttons">
+        <button class="scroll-btn" id="scrollTopBtn" onclick="scrollToTop()" title="Scroll to top">↑</button>
+        <button class="scroll-btn" id="scrollBottomBtn" onclick="scrollToBottom()" title="Scroll to bottom">↓</button>
+    </div>
+
+    <div class="container">
+        <div class="header">
+            <h1>📚 Document Search</h1>
+            <div class="stats" id="stats">Loading stats...</div>
+        </div>
+
+        <div class="search-box">
+            <div class="search-input-container">
+                <input
+                    type="text"
+                    id="searchInput"
+                    placeholder="Search documents..."
+                    autocomplete="off"
+                />
+                <button id="searchBtn">Search</button>
+            </div>
+            <div class="search-info">
+                Search file names, folder names, and document content. Press Enter to search.
+            </div>
+        </div>
+
+        <div class="filters-container">
+            <div class="filters-header" onclick="toggleFilters()">
+                <h3>🔍 Filters & Options</h3>
+                <span class="filters-toggle" id="filtersToggle">Show ▼</span>
+            </div>
+            <div class="filters-content hidden" id="filtersContent">
+                <div class="filter-group">
+                    <label>Search In:</label>
+                    <select id="searchScope">
+                        <option value="all">All (Filenames, Folders, Content)</option>
+                        <option value="filenames">Filenames Only</option>
+                        <option value="folders">Folder Names Only</option>
+                        <option value="content">File Content Only</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label>Sort By:</label>
+                    <select id="sortBy">
+                        <option value="relevance">Relevance (Best Match)</option>
+                        <option value="date">Date Modified (Newest First)</option>
+                        <option value="name">File Name (A-Z)</option>
+                        <option value="size">File Size (Largest First)</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label>File Types:</label>
+                    <div class="checkbox-group">
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="typeWord" value="Word Document" checked>
+                            <label for="typeWord">Word</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="typePDF" value="PDF Document" checked>
+                            <label for="typePDF">PDF</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="typeExcel" value="Excel Spreadsheet" checked>
+                            <label for="typeExcel">Excel</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="typeCSV" value="CSV File" checked>
+                            <label for="typeCSV">CSV</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="typeImage" value="Image" checked>
+                            <label for="typeImage">Images</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="filter-group">
+                    <label>Modified Date From:</label>
+                    <input type="date" id="dateFrom">
+                </div>
+
+                <div class="filter-group">
+                    <label>Modified Date To:</label>
+                    <input type="date" id="dateTo">
+                </div>
+
+                <div class="filter-group">
+                    <label>Min Size (bytes):</label>
+                    <input type="number" id="sizeMin" placeholder="e.g., 1024">
+                </div>
+
+                <div class="filter-group">
+                    <label>Max Size (bytes):</label>
+                    <input type="number" id="sizeMax" placeholder="e.g., 10485760">
+                </div>
+
+                <div class="filter-actions" style="grid-column: 1 / -1;">
+                    <button class="filter-btn filter-btn-apply" onclick="applyFilters()">Apply Filters</button>
+                    <button class="filter-btn filter-btn-clear" onclick="clearFilters()">Clear All</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="results-container">
+            <div id="resultsHeader" class="results-header hidden">
+                <div class="results-count" id="resultsCount"></div>
+            </div>
+            <div id="resultsContent"></div>
+            <div id="paginationContainer" class="pagination hidden"></div>
+        </div>
+    </div>
+
+    <script>
+        const searchInput = document.getElementById('searchInput');
+        const searchBtn = document.getElementById('searchBtn');
+        const resultsHeader = document.getElementById('resultsHeader');
+        const resultsCount = document.getElementById('resultsCount');
+        const resultsContent = document.getElementById('resultsContent');
+        const paginationContainer = document.getElementById('paginationContainer');
+        const statsEl = document.getElementById('stats');
+        const stickySearch = document.getElementById('stickySearch');
+        const stickySearchInput = document.getElementById('stickySearchInput');
+        const scrollTopBtn = document.getElementById('scrollTopBtn');
+        const scrollBottomBtn = document.getElementById('scrollBottomBtn');
+
+        // Current page state
+        let currentPage = 1;
+        let currentSearchData = null;
+
+        // File type icons
+        const fileIcons = {
+            'Word Document': '📄',
+            'CSV File': '📊',
+            'Excel Spreadsheet': '📊',
+            'PDF Document': '📕',
+            'JPEG Image': '🖼️',
+            'PNG Image': '🖼️',
+            'GIF Image': '🖼️',
+            'Bitmap Image': '🖼️',
+            'TIFF Image': '🖼️'
+        };
+
+        // Load stats on page load
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+
+                let statsHtml = `${data.total} documents indexed`;
+                if (data.by_type && data.by_type.length > 0) {
+                    const typeSummary = data.by_type.slice(0, 3).map(t => `${t.type}: ${t.count}`).join(' | ');
+                    statsHtml += ` (${typeSummary})`;
+                }
+
+                statsEl.textContent = statsHtml;
+            } catch (error) {
+                statsEl.textContent = 'Stats unavailable';
+            }
+        }
+
+        // Format file size
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+
+        // Format date
+        function formatDate(isoDate) {
+            const date = new Date(isoDate);
+            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+        }
+
+        // Get selected file types
+        function getSelectedFileTypes() {
+            const types = [];
+            const checkboxes = document.querySelectorAll('.checkbox-item input[type="checkbox"]:checked');
+            checkboxes.forEach(cb => {
+                if (cb.value === 'Image') {
+                    types.push('JPEG Image', 'PNG Image', 'GIF Image', 'Bitmap Image', 'TIFF Image');
+                } else {
+                    types.push(cb.value);
+                }
+            });
+            return types;
+        }
+
+        // Build filter query string
+        function buildFilterParams() {
+            const params = new URLSearchParams();
+
+            // File types
+            const fileTypes = getSelectedFileTypes();
+            if (fileTypes.length > 0) {
+                params.append('fileTypes', fileTypes.join(','));
+            }
+
+            // Search scope
+            const scope = document.getElementById('searchScope').value;
+            if (scope !== 'all') {
+                params.append('scope', scope);
+            }
+
+            // Sort
+            const sort = document.getElementById('sortBy').value;
+            if (sort !== 'relevance') {
+                params.append('sort', sort);
+            }
+
+            // Date range
+            const dateFrom = document.getElementById('dateFrom').value;
+            if (dateFrom) params.append('dateFrom', dateFrom);
+
+            const dateTo = document.getElementById('dateTo').value;
+            if (dateTo) params.append('dateTo', dateTo);
+
+            // Size range
+            const sizeMin = document.getElementById('sizeMin').value;
+            if (sizeMin) params.append('sizeMin', sizeMin);
+
+            const sizeMax = document.getElementById('sizeMax').value;
+            if (sizeMax) params.append('sizeMax', sizeMax);
+
+            return params.toString();
+        }
+
+        // Perform search
+        async function performSearch(page = 1) {
+            const query = searchInput.value.trim();
+
+            if (!query) {
+                resultsContent.innerHTML = '<div class="no-results">Enter a search query to get started</div>';
+                resultsHeader.classList.add('hidden');
+                paginationContainer.classList.add('hidden');
+                return;
+            }
+
+            // Update current page
+            currentPage = page;
+
+            // Update sticky search input
+            stickySearchInput.value = query;
+
+            // Show loading
+            resultsContent.innerHTML = `
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <div>Searching...</div>
+                </div>
+            `;
+            resultsHeader.classList.add('hidden');
+            paginationContainer.classList.add('hidden');
+
+            try {
+                // Build URL with filters and pagination
+                const filterParams = buildFilterParams();
+                const url = `/api/search?q=${encodeURIComponent(query)}&page=${page}${filterParams ? '&' + filterParams : ''}`;
+
+                const response = await fetch(url);
+                const data = await response.json();
+                currentSearchData = data;
+
+                if (data.error) {
+                    resultsContent.innerHTML = `
+                        <div class="error">
+                            Search error: ${data.error}
+                        </div>
+                    `;
+                    return;
+                }
+
+                // Show results count
+                const startResult = (data.page - 1) * data.per_page + 1;
+                const endResult = Math.min(data.page * data.per_page, data.count);
+                let countText = `Found ${data.count} result${data.count !== 1 ? 's' : ''} for "${data.query}"`;
+                if (data.count > 0) {
+                    countText += ` (showing ${startResult}-${endResult})`;
+                }
+                resultsCount.textContent = countText;
+                resultsHeader.classList.remove('hidden');
+
+                // Show results
+                if (data.results.length === 0) {
+                    resultsContent.innerHTML = '<div class="no-results">No documents found matching your query</div>';
+                    paginationContainer.classList.add('hidden');
+                } else {
+                    resultsContent.innerHTML = data.results.map(result => {
+                        const icon = fileIcons[result.file_type] || '📄';
+                        return `
+                            <div class="result-item" onclick="openDocument('${result.file_path.replace(/\\/g, '\\\\')}')">
+                                <div class="result-title">
+                                    <span class="file-icon">${icon}</span>
+                                    ${result.file_name}
+                                    <span class="result-type">${result.file_type}</span>
+                                </div>
+                                <div class="result-path">${result.file_path}</div>
+                                <div class="result-snippet">${result.snippet}</div>
+                                <div class="result-meta">
+                                    <span>Size: ${formatFileSize(result.file_size)}</span>
+                                    <span>Modified: ${formatDate(result.modified_date)}</span>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+
+                    // Show pagination if needed
+                    if (data.total_pages > 1) {
+                        renderPagination(data.page, data.total_pages);
+                    } else {
+                        paginationContainer.classList.add('hidden');
+                    }
+                }
+            } catch (error) {
+                resultsContent.innerHTML = `
+                    <div class="error">
+                        Network error: ${error.message}
+                    </div>
+                `;
+            }
+        }
+
+        // Open document (copy path to clipboard since we can't open network paths directly)
+        function openDocument(filePath) {
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(filePath).then(() => {
+                    alert('File path copied to clipboard!\n\n' + filePath + '\n\nYou can paste this into Windows Explorer to open the file.');
+                }).catch(() => {
+                    prompt('Copy this file path:', filePath);
+                });
+            } else {
+                prompt('Copy this file path:', filePath);
+            }
+        }
+
+        // Toggle filters visibility
+        function toggleFilters() {
+            const content = document.getElementById('filtersContent');
+            const toggle = document.getElementById('filtersToggle');
+
+            content.classList.toggle('hidden');
+
+            if (content.classList.contains('hidden')) {
+                toggle.textContent = 'Show ▼';
+            } else {
+                toggle.textContent = 'Hide ▲';
+            }
+        }
+
+        // Apply filters and perform search
+        function applyFilters() {
+            performSearch(1);
+        }
+
+        // Clear all filters
+        function clearFilters() {
+            // Reset all checkboxes to checked
+            document.querySelectorAll('.checkbox-item input[type="checkbox"]').forEach(cb => {
+                cb.checked = true;
+            });
+
+            // Reset selects
+            document.getElementById('searchScope').value = 'all';
+            document.getElementById('sortBy').value = 'relevance';
+
+            // Clear date inputs
+            document.getElementById('dateFrom').value = '';
+            document.getElementById('dateTo').value = '';
+
+            // Clear size inputs
+            document.getElementById('sizeMin').value = '';
+            document.getElementById('sizeMax').value = '';
+
+            // Perform search with cleared filters from page 1
+            performSearch(1);
+        }
+
+        // Render pagination controls
+        function renderPagination(currentPage, totalPages) {
+            const maxVisible = 5;
+            let pages = [];
+
+            // Always show first page
+            pages.push(1);
+
+            // Calculate range around current page
+            let start = Math.max(2, currentPage - 2);
+            let end = Math.min(totalPages - 1, currentPage + 2);
+
+            // Add ellipsis after first page if needed
+            if (start > 2) {
+                pages.push('...');
+            }
+
+            // Add pages around current
+            for (let i = start; i <= end; i++) {
+                pages.push(i);
+            }
+
+            // Add ellipsis before last page if needed
+            if (end < totalPages - 1) {
+                pages.push('...');
+            }
+
+            // Always show last page if there's more than one
+            if (totalPages > 1) {
+                pages.push(totalPages);
+            }
+
+            // Build pagination HTML
+            let paginationHTML = `
+                <button onclick="performSearch(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>
+                    ← Previous
+                </button>
+            `;
+
+            pages.forEach(page => {
+                if (page === '...') {
+                    paginationHTML += '<span class="page-info">...</span>';
+                } else {
+                    const isActive = page === currentPage;
+                    paginationHTML += `
+                        <button
+                            onclick="performSearch(${page})"
+                            ${isActive ? 'style="background: #167E27; color: white; border-color: #167E27;"' : ''}
+                        >
+                            ${page}
+                        </button>
+                    `;
+                }
+            });
+
+            paginationHTML += `
+                <button onclick="performSearch(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}>
+                    Next →
+                </button>
+                <span class="page-info">Page ${currentPage} of ${totalPages}</span>
+            `;
+
+            paginationContainer.innerHTML = paginationHTML;
+            paginationContainer.classList.remove('hidden');
+
+            // Scroll to results after page change
+            if (currentPage > 1) {
+                document.querySelector('.results-container').scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+
+        // Scroll functions
+        function scrollToTop() {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function scrollToBottom() {
+            window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+        }
+
+        // Handle scroll events for sticky search and scroll buttons
+        let searchBoxBottom = 0;
+
+        window.addEventListener('scroll', () => {
+            // Update search box position
+            const searchBox = document.querySelector('.search-box');
+            if (searchBox) {
+                searchBoxBottom = searchBox.getBoundingClientRect().bottom;
+            }
+
+            // Show sticky search when scrolled past the main search box
+            if (window.scrollY > 300 && searchInput.value.trim()) {
+                stickySearch.classList.add('visible');
+            } else {
+                stickySearch.classList.remove('visible');
+            }
+
+            // Show/hide scroll buttons
+            if (window.scrollY > 300) {
+                scrollTopBtn.classList.add('visible');
+            } else {
+                scrollTopBtn.classList.remove('visible');
+            }
+
+            if (window.scrollY < document.body.scrollHeight - window.innerHeight - 300) {
+                scrollBottomBtn.classList.add('visible');
+            } else {
+                scrollBottomBtn.classList.remove('visible');
+            }
+        });
+
+        // Event listeners
+        searchBtn.addEventListener('click', () => performSearch(1));
+        searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                performSearch(1);
+            }
+        });
+
+        // Load stats on page load
+        loadStats();
+
+        // Show initial message
+        resultsContent.innerHTML = '<div class="no-results">Enter a search query to get started</div>';
+    </script>
+</body>
+</html>

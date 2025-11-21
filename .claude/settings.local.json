@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(if exist documents.db del documents.db)",
+      "Bash(test:*)",
+      "Bash(python:*)",
+      "Bash(del test_companies.py test_abbreviations.py)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
