@@ -393,6 +393,8 @@
             background-color: #f0f0f0;
             color: #666;
             cursor: default;
+            pointer-events: none;
+            user-select: none;
         }
 
         .sticky-search button {
@@ -485,9 +487,310 @@
         .scroll-btn:active {
             transform: scale(0.95);
         }
+
+        /* Settings Button and Modal */
+        .settings-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: 2px solid white;
+            border-radius: 8px;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .settings-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 2000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            animation: fadeIn 0.3s;
+        }
+
+        .modal.show {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: 5% auto;
+            padding: 0;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 700px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            animation: slideUp 0.3s;
+        }
+
+        @keyframes slideUp {
+            from {
+                transform: translateY(50px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .modal-header {
+            background: linear-gradient(135deg, #167E27 0%, #0d5c1e 100%);
+            color: white;
+            padding: 20px 30px;
+            border-radius: 12px 12px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h2 {
+            margin: 0;
+            font-size: 22px;
+        }
+
+        .modal-close {
+            color: white;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            border: none;
+            background: none;
+            padding: 0;
+            line-height: 1;
+        }
+
+        .modal-close:hover {
+            opacity: 0.8;
+        }
+
+        .modal-body {
+            padding: 30px;
+            max-height: 60vh;
+            overflow-y: auto;
+        }
+
+        .setting-item {
+            margin-bottom: 25px;
+        }
+
+        .setting-item label {
+            display: block;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .setting-item input {
+            width: 100%;
+            padding: 10px 15px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: 'Courier New', monospace;
+            box-sizing: border-box;
+        }
+
+        .setting-item input:focus {
+            outline: none;
+            border-color: #167E27;
+        }
+
+        .setting-item .hint {
+            font-size: 12px;
+            color: #999;
+            margin-top: 5px;
+        }
+
+        .setting-item .default-value {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+            font-style: italic;
+        }
+
+        .modal-footer {
+            padding: 20px 30px;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            gap: 10px;
+            justify-content: space-between;
+        }
+
+        .modal-footer button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #167E27;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #0d5c1e;
+        }
+
+        .btn-secondary {
+            background: #f5f5f5;
+            color: #666;
+        }
+
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #c82333;
+        }
+
+        .alert {
+            padding: 12px 15px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .header {
+            position: relative;
+        }
+
+        /* Popular Words Sidebar */
+        .sidebar {
+            position: fixed;
+            left: 20px;
+            top: 120px;
+            width: 200px;
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            max-height: calc(100vh - 160px);
+            overflow-y: auto;
+            z-index: 100;
+        }
+
+        .sidebar h3 {
+            margin: 0 0 15px 0;
+            font-size: 16px;
+            color: #333;
+            border-bottom: 2px solid #167E27;
+            padding-bottom: 10px;
+        }
+
+        .popular-words {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .word-item {
+            padding: 8px 12px;
+            margin-bottom: 6px;
+            background: #f5f5f5;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .word-item:hover:not(.searched) {
+            background: #167E27;
+            color: white;
+            transform: translateX(5px);
+        }
+
+        .word-item.searched {
+            background: #e0e0e0;
+            color: #999;
+            cursor: default;
+            opacity: 0.6;
+        }
+
+        .word-text {
+            flex: 1;
+        }
+
+        .word-count {
+            font-size: 11px;
+            opacity: 0.7;
+            margin-left: 5px;
+        }
+
+        .sidebar-loading {
+            text-align: center;
+            color: #999;
+            font-size: 14px;
+            padding: 20px;
+        }
+
+        /* Adjust container to make room for sidebar */
+        @media (min-width: 1024px) {
+            .container {
+                margin-left: 240px;
+            }
+        }
+
+        /* Hide sidebar on small screens */
+        @media (max-width: 1023px) {
+            .sidebar {
+                display: none;
+            }
+        }
     </style>
 </head>
 <body>
+    <!-- Popular Words Sidebar -->
+    <div class="sidebar">
+        <h3>🔥 Popular Words</h3>
+        <div id="popularWordsContent">
+            <div class="sidebar-loading">Loading...</div>
+        </div>
+    </div>
+
     <!-- Sticky search bar -->
     <div class="sticky-search" id="stickySearch">
         <div class="sticky-search-content">
@@ -503,8 +806,43 @@
         <button class="scroll-btn" id="scrollBottomBtn" onclick="scrollToBottom()" title="Scroll to bottom">↓</button>
     </div>
 
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>⚙️ Settings</h2>
+                <button class="modal-close" onclick="closeSettings()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="settingsAlert"></div>
+
+                <div class="setting-item">
+                    <label for="settingDatabasePath">Database Path</label>
+                    <input type="text" id="settingDatabasePath" placeholder="Enter database file path">
+                    <div class="hint">Path to the SQLite database file (e.g., \\192.168.203.207\Shared Folders\Databases\documents.sqlite3)</div>
+                    <div class="default-value" id="defaultDatabasePath"></div>
+                </div>
+
+                <div class="setting-item">
+                    <label for="settingDocumentPath">Document Path (For Indexing)</label>
+                    <input type="text" id="settingDocumentPath" placeholder="Enter document folder path">
+                    <div class="hint">Root folder to scan for documents (e.g., \\192.168.203.207\Shared Folders)</div>
+                    <div class="default-value" id="defaultDocumentPath"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-danger" onclick="resetSettings()">Reset to Defaults</button>
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn-secondary" onclick="closeSettings()">Cancel</button>
+                    <button class="btn-primary" onclick="saveSettings()">Save Changes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="container">
         <div class="header">
+            <button class="settings-btn" onclick="openSettings()">⚙️ Settings</button>
             <h1>📚 Document Search</h1>
             <div class="stats" id="stats">Loading stats...</div>
         </div>
@@ -995,8 +1333,194 @@
             }
         });
 
-        // Load stats on page load
+        // Settings Management
+        let currentSettings = null;
+        let defaultSettings = null;
+
+        async function loadSettings() {
+            try {
+                const response = await fetch('/api/settings');
+                const data = await response.json();
+                currentSettings = data.current;
+                defaultSettings = data.defaults;
+
+                // Populate inputs
+                document.getElementById('settingDatabasePath').value = currentSettings.database_path || '';
+                document.getElementById('settingDocumentPath').value = currentSettings.document_path || '';
+
+                // Show defaults
+                document.getElementById('defaultDatabasePath').textContent =
+                    `Default: ${defaultSettings.database_path}`;
+                document.getElementById('defaultDocumentPath').textContent =
+                    `Default: ${defaultSettings.document_path}`;
+            } catch (error) {
+                console.error('Error loading settings:', error);
+            }
+        }
+
+        function openSettings() {
+            loadSettings();
+            document.getElementById('settingsModal').classList.add('show');
+            document.getElementById('settingsAlert').innerHTML = '';
+        }
+
+        function closeSettings() {
+            document.getElementById('settingsModal').classList.remove('show');
+        }
+
+        async function saveSettings() {
+            const newSettings = {
+                database_path: document.getElementById('settingDatabasePath').value.trim(),
+                document_path: document.getElementById('settingDocumentPath').value.trim()
+            };
+
+            // Remove empty values
+            Object.keys(newSettings).forEach(key => {
+                if (!newSettings[key]) {
+                    delete newSettings[key];
+                }
+            });
+
+            try {
+                const response = await fetch('/api/settings', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(newSettings)
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    document.getElementById('settingsAlert').innerHTML =
+                        '<div class="alert alert-success">✅ Settings saved successfully! Reload the page to apply changes.</div>';
+
+                    // Reload stats to reflect new database
+                    setTimeout(() => {
+                        loadStats();
+                        closeSettings();
+                    }, 2000);
+                } else {
+                    document.getElementById('settingsAlert').innerHTML =
+                        `<div class="alert alert-error">❌ Error: ${data.error}</div>`;
+                }
+            } catch (error) {
+                document.getElementById('settingsAlert').innerHTML =
+                    `<div class="alert alert-error">❌ Network error: ${error.message}</div>`;
+            }
+        }
+
+        async function resetSettings() {
+            if (!confirm('Are you sure you want to reset all settings to defaults?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/settings/reset', {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    document.getElementById('settingsAlert').innerHTML =
+                        '<div class="alert alert-success">✅ Settings reset to defaults! Reload the page to apply changes.</div>';
+
+                    setTimeout(() => {
+                        loadSettings();
+                        loadStats();
+                        closeSettings();
+                    }, 2000);
+                } else {
+                    document.getElementById('settingsAlert').innerHTML =
+                        `<div class="alert alert-error">❌ Error: ${data.error}</div>`;
+                }
+            } catch (error) {
+                document.getElementById('settingsAlert').innerHTML =
+                    `<div class="alert alert-error">❌ Network error: ${error.message}</div>`;
+            }
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('settingsModal');
+            if (event.target === modal) {
+                closeSettings();
+            }
+        }
+
+        // Popular Words Management
+        let popularWords = [];
+
+        async function loadPopularWords() {
+            try {
+                const response = await fetch('/api/top-words');
+                const data = await response.json();
+                popularWords = data.words || [];
+
+                if (popularWords.length > 0) {
+                    renderPopularWords();
+                } else {
+                    document.getElementById('popularWordsContent').innerHTML =
+                        '<div class="sidebar-loading">No words found</div>';
+                }
+            } catch (error) {
+                console.error('Error loading popular words:', error);
+                document.getElementById('popularWordsContent').innerHTML =
+                    '<div class="sidebar-loading">Error loading</div>';
+            }
+        }
+
+        function renderPopularWords() {
+            const currentSearchWords = searchInput.value.toLowerCase().split(/\s+/);
+
+            const wordsHTML = popularWords.map(item => {
+                const isSearched = currentSearchWords.includes(item.word.toLowerCase());
+                const searchedClass = isSearched ? 'searched' : '';
+
+                return `
+                    <div class="word-item ${searchedClass}" onclick="addWordToSearch('${item.word}')" title="${item.count} occurrences">
+                        <span class="word-text">${item.word}</span>
+                        <span class="word-count">${item.count}</span>
+                    </div>
+                `;
+            }).join('');
+
+            document.getElementById('popularWordsContent').innerHTML =
+                `<div class="popular-words">${wordsHTML}</div>`;
+        }
+
+        function addWordToSearch(word) {
+            const currentValue = searchInput.value.trim();
+            const words = currentValue.toLowerCase().split(/\s+/);
+
+            // Check if word is already in search
+            if (words.includes(word.toLowerCase())) {
+                return; // Word already searched
+            }
+
+            // Add word to search
+            const newValue = currentValue ? `${currentValue} ${word}` : word;
+            searchInput.value = newValue;
+
+            // Update popular words display
+            renderPopularWords();
+
+            // Optionally auto-search
+            // performSearch(1);
+        }
+
+        // Update popular words display after search
+        const originalPerformSearch = performSearch;
+        performSearch = async function(page = 1) {
+            await originalPerformSearch(page);
+            renderPopularWords();
+        };
+
+        // Load stats and popular words on page load
         loadStats();
+        loadPopularWords();
 
         // Show initial message
         resultsContent.innerHTML = '<div class="no-results">Enter a search query to get started</div>';

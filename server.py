@@ -3,8 +3,11 @@
 from flask import Flask, render_template, request, jsonify
 import sqlite3
 import os
+import webbrowser
+import threading
 from pathlib import Path
-from config import DATABASE_PATH, SERVER_HOST, SERVER_PORT
+from config import DATABASE_PATH, SERVER_HOST, SERVER_PORT, DOCUMENT_PATH
+from config_manager import get_all_config, save_user_config, reset_to_defaults
 from company_abbreviations import get_company_abbreviations
 
 app = Flask(__name__)
@@ -21,8 +24,10 @@ def initialize():
 
 
 def get_db_connection():
-    """Get database connection"""
-    conn = sqlite3.connect(DATABASE_PATH)
+    """Get database connection using current config"""
+    config = get_all_config()
+    db_path = config.get('database_path', DATABASE_PATH)
+    conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -258,6 +263,108 @@ def stats():
     })
 
 
+@app.route('/api/top-words')
+def top_words():
+    """Get top 10 most common words from indexed content"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # Get top words from FTS5 index
+    # This queries the most common terms across all indexed content
+    try:
+        # Use a simple approach: get random sample of popular terms
+        # FTS5 doesn't have a built-in "most common words" query, so we'll
+        # extract from file names and content
+        cursor.execute('''
+            SELECT content FROM documents
+            WHERE content IS NOT NULL AND content != ''
+            AND LENGTH(content) > 20
+            ORDER BY RANDOM()
+            LIMIT 100
+        ''')
+
+        rows = cursor.fetchall()
+
+        # Count word frequencies
+        from collections import Counter
+        import re
+
+        word_counts = Counter()
+        stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+                     'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'be', 'been',
+                     'this', 'that', 'these', 'those', 'it', 'its', 'can', 'will', 'would',
+                     'sheet', 'none', 'true', 'false', 'openpyxl', 'not', 'installed',
+                     'error', 'reading'}
+
+        for row in rows:
+            content = row['content'].lower()
+            # Extract words (alphanumeric, 3+ chars)
+            words = re.findall(r'\b[a-z]{3,}\b', content)
+            for word in words:
+                if word not in stop_words:
+                    word_counts[word] += 1
+
+        # Get top 10
+        top_10 = [{'word': word, 'count': count} for word, count in word_counts.most_common(10)]
+
+        conn.close()
+        return jsonify({'words': top_10})
+
+    except Exception as e:
+        conn.close()
+        return jsonify({'words': [], 'error': str(e)})
+
+
+@app.route('/api/settings')
+def get_settings():
+    """Get current settings including defaults and overrides"""
+    from config import DATABASE_PATH as DEFAULT_DB, SERVER_HOST as DEFAULT_HOST, SERVER_PORT as DEFAULT_PORT, DOCUMENT_PATH as DEFAULT_DOC
+
+    config = get_all_config()
+
+    return jsonify({
+        'current': config,
+        'defaults': {
+            'database_path': DEFAULT_DB,
+            'server_host': DEFAULT_HOST,
+            'server_port': DEFAULT_PORT,
+            'document_path': DEFAULT_DOC
+        }
+    })
+
+
+@app.route('/api/settings', methods=['POST'])
+def update_settings():
+    """Update user settings"""
+    try:
+        new_settings = request.json
+
+        # Validate settings
+        if 'database_path' in new_settings:
+            db_path = Path(new_settings['database_path'])
+            if not db_path.exists():
+                return jsonify({'error': f'Database file not found: {new_settings["database_path"]}'}), 400
+
+        # Save settings
+        if save_user_config(new_settings):
+            return jsonify({'success': True, 'message': 'Settings saved successfully'})
+        else:
+            return jsonify({'error': 'Failed to save settings'}), 500
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/settings/reset', methods=['POST'])
+def reset_settings():
+    """Reset settings to defaults"""
+    try:
+        reset_to_defaults()
+        return jsonify({'success': True, 'message': 'Settings reset to defaults'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/open/<int:doc_id>')
 def open_document(doc_id):
     """Get document path for opening"""
@@ -274,12 +381,25 @@ def open_document(doc_id):
         return jsonify({'error': 'Document not found'}), 404
 
 
+def open_browser():
+    """Open the default web browser to the application URL"""
+    webbrowser.open(f'http://127.0.0.1:{SERVER_PORT}')
+
+
 if __name__ == '__main__':
     if not os.path.exists(DATABASE_PATH):
         print(f"ERROR: Database not found at {DATABASE_PATH}")
         print("Please run indexer.py first to create and populate the database")
         exit(1)
 
-    print(f"Starting server at http://{SERVER_HOST}:{SERVER_PORT}")
+    print(f"Starting server on all network interfaces at port {SERVER_PORT}")
+    print(f"Access locally at: http://127.0.0.1:{SERVER_PORT}")
+    print(f"Access from network at: http://{SERVER_HOST}:{SERVER_PORT}")
     print("Press Ctrl+C to stop")
-    app.run(host=SERVER_HOST, port=SERVER_PORT, debug=True)
+    print()
+    print("Opening web browser...")
+
+    # Open browser after a short delay to ensure server is ready
+    threading.Timer(1.5, open_browser).start()
+
+    app.run(host='0.0.0.0', port=SERVER_PORT, debug=True)

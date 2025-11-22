@@ -5,6 +5,8 @@ import sqlite3
 from pathlib import Path
 from datetime import datetime
 import traceback
+import multiprocessing
+from functools import partial
 
 # Document parsing libraries
 try:
@@ -36,11 +38,23 @@ except ImportError:
 
 from config import DOCUMENT_PATH, DATABASE_PATH, SUPPORTED_EXTENSIONS
 
+# Parallel processing configuration
+ENABLE_PARALLEL = True  # Enable parallel processing by default
+MAX_WORKERS = None  # None = auto-detect (75% of CPU cores)
+
 
 class DocumentIndexer:
     def __init__(self):
         self.db_path = DATABASE_PATH
         self.document_path = DOCUMENT_PATH
+        print(f"\n{'='*80}")
+        print(f"INDEXER CONFIGURATION:")
+        print(f"{'='*80}")
+        print(f"Database path: {self.db_path}")
+        print(f"Absolute database path: {Path(self.db_path).absolute()}")
+        print(f"Database exists: {os.path.exists(self.db_path)}")
+        print(f"Document path: {self.document_path}")
+        print(f"{'='*80}\n")
         self.init_database()
 
     def init_database(self):
@@ -178,6 +192,27 @@ class DocumentIndexer:
         except Exception as e:
             return f"[Error reading image: {str(e)}]"
 
+    def extract_text_from_ps1(self, file_path):
+        """Extract text from PowerShell script files"""
+        try:
+            # Try UTF-8 first (most common for modern scripts)
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except UnicodeDecodeError:
+            try:
+                # Fallback to UTF-16 (sometimes used by Windows)
+                with open(file_path, 'r', encoding='utf-16') as f:
+                    return f.read()
+            except UnicodeDecodeError:
+                try:
+                    # Final fallback to latin-1 (always succeeds)
+                    with open(file_path, 'r', encoding='latin-1') as f:
+                        return f.read()
+                except Exception as e:
+                    return f"[Error reading PowerShell script: {str(e)}]"
+        except Exception as e:
+            return f"[Error reading PowerShell script: {str(e)}]"
+
     def extract_text(self, file_path):
         """Extract text based on file extension"""
         ext = Path(file_path).suffix.lower()
@@ -190,10 +225,170 @@ class DocumentIndexer:
             return self.extract_text_from_xlsx(file_path)
         elif ext == '.pdf':
             return self.extract_text_from_pdf(file_path)
+        elif ext == '.ps1':
+            return self.extract_text_from_ps1(file_path)
         elif ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.tif']:
             return self.extract_text_from_image(file_path)
         else:
             return "[Unsupported file type]"
+
+    @staticmethod
+    def extract_document_data(file_path, document_path):
+        """
+        Worker function for parallel processing - extracts document metadata and text
+        This runs in a separate process, so it doesn't access self or the database
+
+        Returns: (success, file_path, metadata_dict, content) or (success, file_path, error_message, None)
+        """
+        try:
+            path = Path(file_path)
+
+            # Get file metadata
+            file_name = path.name
+            file_type = SUPPORTED_EXTENSIONS.get(path.suffix.lower(), 'Unknown')
+            file_size = path.stat().st_size
+            modified_date = datetime.fromtimestamp(path.stat().st_mtime).isoformat()
+            indexed_date = datetime.now().isoformat()
+
+            # Extract folder path
+            try:
+                folder_path = str(path.parent.relative_to(Path(document_path)))
+                folder_path = folder_path.replace('\\', ' ').replace('/', ' ')
+            except ValueError:
+                folder_path = str(path.parent)
+
+            # Extract text content - this is the CPU-intensive part
+            ext = path.suffix.lower()
+
+            # Use static methods to extract text (since we can't access self in worker)
+            if ext == '.docx':
+                content = DocumentIndexer._static_extract_docx(file_path)
+            elif ext == '.csv':
+                content = DocumentIndexer._static_extract_csv(file_path)
+            elif ext == '.xlsx':
+                content = DocumentIndexer._static_extract_xlsx(file_path)
+            elif ext == '.pdf':
+                content = DocumentIndexer._static_extract_pdf(file_path)
+            elif ext == '.ps1':
+                content = DocumentIndexer._static_extract_ps1(file_path)
+            elif ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.tif']:
+                content = DocumentIndexer._static_extract_image(file_path)
+            else:
+                content = "[Unsupported file type]"
+
+            # Package metadata
+            metadata = {
+                'file_name': file_name,
+                'folder_path': folder_path,
+                'file_type': file_type,
+                'file_size': file_size,
+                'modified_date': modified_date,
+                'indexed_date': indexed_date
+            }
+
+            return (True, str(file_path), metadata, content)
+
+        except Exception as e:
+            return (False, str(file_path), str(e), None)
+
+    # Static extraction methods for workers
+    @staticmethod
+    def _static_extract_docx(file_path):
+        """Static version of DOCX extraction for worker processes"""
+        if Document is None:
+            return "[python-docx not installed]"
+        try:
+            doc = Document(file_path)
+            text = []
+            for paragraph in doc.paragraphs:
+                text.append(paragraph.text)
+            return '\n'.join(text)
+        except Exception as e:
+            return f"[Error reading DOCX: {str(e)}]"
+
+    @staticmethod
+    def _static_extract_csv(file_path):
+        """Static version of CSV extraction for worker processes"""
+        if pd is None:
+            return "[pandas not installed]"
+        try:
+            df = pd.read_csv(file_path, encoding='utf-8', on_bad_lines='skip')
+            return df.to_string()
+        except Exception:
+            try:
+                df = pd.read_csv(file_path, encoding='latin-1', on_bad_lines='skip')
+                return df.to_string()
+            except Exception as e:
+                return f"[Error reading CSV: {str(e)}]"
+
+    @staticmethod
+    def _static_extract_xlsx(file_path):
+        """Static version of XLSX extraction for worker processes"""
+        if load_workbook is None:
+            return "[openpyxl not installed]"
+        try:
+            wb = load_workbook(file_path, read_only=True, data_only=True)
+            text = []
+            for sheet_name in wb.sheetnames:
+                sheet = wb[sheet_name]
+                text.append(f"Sheet: {sheet_name}")
+                for row in sheet.iter_rows(values_only=True):
+                    row_text = ' | '.join([str(cell) if cell is not None else '' for cell in row])
+                    if row_text.strip():
+                        text.append(row_text)
+            return '\n'.join(text)
+        except Exception as e:
+            return f"[Error reading XLSX: {str(e)}]"
+
+    @staticmethod
+    def _static_extract_pdf(file_path):
+        """Static version of PDF extraction for worker processes"""
+        if PdfReader is None:
+            return "[PyPDF2 not installed]"
+        try:
+            reader = PdfReader(file_path)
+            text = []
+            for page in reader.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text.append(page_text)
+            return '\n'.join(text)
+        except Exception as e:
+            return f"[Error reading PDF: {str(e)}]"
+
+    @staticmethod
+    def _static_extract_image(file_path):
+        """Static version of image extraction for worker processes"""
+        if Image is None or pytesseract is None:
+            return "[Pillow or pytesseract not installed]"
+        try:
+            img = Image.open(file_path)
+            text = pytesseract.image_to_string(img)
+            return text if text.strip() else "[No text found in image]"
+        except Exception as e:
+            return f"[Error reading image: {str(e)}]"
+
+    @staticmethod
+    def _static_extract_ps1(file_path):
+        """Static version of PowerShell script extraction for worker processes"""
+        try:
+            # Try UTF-8 first (most common for modern scripts)
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except UnicodeDecodeError:
+            try:
+                # Fallback to UTF-16 (sometimes used by Windows)
+                with open(file_path, 'r', encoding='utf-16') as f:
+                    return f.read()
+            except UnicodeDecodeError:
+                try:
+                    # Final fallback to latin-1 (always succeeds)
+                    with open(file_path, 'r', encoding='latin-1') as f:
+                        return f.read()
+                except Exception as e:
+                    return f"[Error reading PowerShell script: {str(e)}]"
+        except Exception as e:
+            return f"[Error reading PowerShell script: {str(e)}]"
 
     def index_document(self, file_path):
         """Index a single document"""
@@ -264,8 +459,59 @@ class DocumentIndexer:
         except Exception as e:
             return False, f"Error indexing {file_path}: {str(e)}"
 
-    def scan_and_index(self):
-        """Scan document folder and index all supported files"""
+    def write_document_to_db(self, file_path, metadata, content):
+        """
+        Write extracted document data to database
+        Used by parallel processing to write results from workers
+        """
+        try:
+            # Debug: Show database path
+            # print(f"DEBUG: Writing to database: {self.db_path}")
+
+            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            cursor = conn.cursor()
+
+            # Check if document already exists
+            cursor.execute('SELECT id FROM documents WHERE file_path = ?', (file_path,))
+            existing = cursor.fetchone()
+
+            if existing:
+                # Update existing document
+                doc_id = existing[0]
+                cursor.execute('''
+                    UPDATE documents
+                    SET file_name=?, folder_path=?, file_type=?, file_size=?, modified_date=?, indexed_date=?, content=?
+                    WHERE id=?
+                ''', (metadata['file_name'], metadata['folder_path'], metadata['file_type'],
+                      metadata['file_size'], metadata['modified_date'], metadata['indexed_date'],
+                      content, doc_id))
+            else:
+                # Insert new document
+                cursor.execute('''
+                    INSERT INTO documents (file_path, file_name, folder_path, file_type, file_size, modified_date, indexed_date, content)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (file_path, metadata['file_name'], metadata['folder_path'], metadata['file_type'],
+                      metadata['file_size'], metadata['modified_date'], metadata['indexed_date'], content))
+
+            conn.commit()
+            conn.close()
+            return True, f"Indexed: {metadata['file_name']}"
+
+        except Exception as e:
+            import traceback
+            error_detail = traceback.format_exc()
+            print(f"Database write error details:\n{error_detail}")
+            return False, f"Error writing {Path(file_path).name} to database: {str(e)}"
+
+    def scan_and_index(self, use_parallel=None, max_workers=None, progress_callback=None):
+        """
+        Scan document folder and index all supported files
+
+        Args:
+            use_parallel: Enable parallel processing (default: ENABLE_PARALLEL constant)
+            max_workers: Number of worker processes (default: 75% of CPU cores)
+            progress_callback: Optional callback function(indexed, total, message) for progress updates
+        """
         print(f"Scanning documents in: {self.document_path}")
         print("-" * 80)
 
@@ -273,28 +519,161 @@ class DocumentIndexer:
             print(f"ERROR: Path does not exist: {self.document_path}")
             return
 
-        indexed_count = 0
-        error_count = 0
+        # Determine if we should use parallel processing
+        if use_parallel is None:
+            use_parallel = ENABLE_PARALLEL
 
-        # Walk through all directories
+        # Determine worker count
+        if max_workers is None:
+            if MAX_WORKERS is None:
+                # Auto-detect: use 75% of CPU cores, minimum 1
+                cpu_count = os.cpu_count() or 1
+                max_workers = max(1, int(cpu_count * 0.75))
+            else:
+                max_workers = MAX_WORKERS
+
+        # Build list of files to index
+        files_to_index = []
+        skipped_extensions = {}
+        total_scanned = 0
+
         for root, dirs, files in os.walk(self.document_path):
             for file in files:
+                total_scanned += 1
                 ext = Path(file).suffix.lower()
                 if ext in SUPPORTED_EXTENSIONS:
                     file_path = os.path.join(root, file)
-                    success, message = self.index_document(file_path)
+                    files_to_index.append(file_path)
+                else:
+                    # Track skipped extensions
+                    if ext:
+                        skipped_extensions[ext] = skipped_extensions.get(ext, 0) + 1
 
-                    if success:
-                        indexed_count += 1
-                        print(f"✓ {message}")
-                    else:
-                        error_count += 1
-                        print(f"✗ {message}")
+        total_files = len(files_to_index)
+
+        # Show scanning summary
+        print(f"Scanned {total_scanned} total files")
+        print(f"Found {total_files} supported documents to index")
+        if skipped_extensions:
+            print(f"Skipped {sum(skipped_extensions.values())} files with unsupported extensions:")
+            # Show top 10 skipped extensions
+            sorted_skipped = sorted(skipped_extensions.items(), key=lambda x: x[1], reverse=True)
+            for ext, count in sorted_skipped[:10]:
+                ext_display = ext if ext else "(no extension)"
+                print(f"  {ext_display}: {count} files")
+
+        if total_files == 0:
+            print("No supported documents found to index")
+            print(f"Supported extensions: {', '.join(SUPPORTED_EXTENSIONS.keys())}")
+            return
+
+        # Decide mode based on file count and parallel setting
+        if use_parallel and total_files > 5:  # Only use parallel for more than 5 files
+            print(f"Parallel processing enabled: using {max_workers} of {os.cpu_count()} CPU cores")
+            print(f"Found {total_files} documents to process")
+            print("-" * 80)
+            indexed_count, error_count = self._scan_parallel(files_to_index, max_workers, progress_callback)
+        else:
+            if use_parallel and total_files <= 5:
+                print(f"Found {total_files} documents - using sequential mode (parallel not efficient for small batches)")
+            else:
+                print(f"Sequential mode - Found {total_files} documents to process")
+            print("-" * 80)
+            indexed_count, error_count = self._scan_sequential(files_to_index, progress_callback)
 
         print("-" * 80)
         print(f"Indexing complete!")
         print(f"Successfully indexed: {indexed_count} documents")
         print(f"Errors: {error_count}")
+
+        # Verify database contents
+        try:
+            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            cursor = conn.cursor()
+            cursor.execute('SELECT COUNT(*) FROM documents')
+            db_count = cursor.fetchone()[0]
+            conn.close()
+            print(f"Database now contains: {db_count} total documents")
+
+            if indexed_count > 0 and db_count == 0:
+                print("⚠️  WARNING: Files were processed but database is empty!")
+                print(f"   Database path: {self.db_path}")
+                print(f"   Database exists: {os.path.exists(self.db_path)}")
+        except Exception as e:
+            print(f"Could not verify database: {e}")
+
+        return indexed_count, error_count
+
+    def _scan_sequential(self, files_to_index, progress_callback=None):
+        """Sequential indexing (original method)"""
+        indexed_count = 0
+        error_count = 0
+        total = len(files_to_index)
+
+        for file_path in files_to_index:
+            success, message = self.index_document(file_path)
+
+            if success:
+                indexed_count += 1
+                print(f"✓ {message}")
+            else:
+                error_count += 1
+                print(f"✗ {message}")
+
+            if progress_callback:
+                progress_callback(indexed_count + error_count, total, message)
+
+        return indexed_count, error_count
+
+    def _scan_parallel(self, files_to_index, max_workers, progress_callback=None):
+        """Parallel indexing using multiprocessing"""
+        indexed_count = 0
+        error_count = 0
+        total = len(files_to_index)
+
+        # Create worker function with document_path bound
+        worker_func = partial(DocumentIndexer.extract_document_data, document_path=self.document_path)
+
+        try:
+            # Create process pool
+            with multiprocessing.Pool(processes=max_workers) as pool:
+                # Process files in parallel
+                # Use imap_unordered for better performance (results come as workers finish)
+                results = pool.imap_unordered(worker_func, files_to_index, chunksize=2)
+
+                # Process results from workers
+                for success, file_path, data, content in results:
+                    message = ""
+                    if success:
+                        # Write to database (main process only)
+                        db_success, message = self.write_document_to_db(file_path, data, content)
+
+                        if db_success:
+                            indexed_count += 1
+                            print(f"✓ {message}")
+                        else:
+                            error_count += 1
+                            print(f"✗ {message}")
+                    else:
+                        # data contains error message in this case
+                        error_count += 1
+                        file_name = Path(file_path).name
+                        message = f"Error: {file_name}: {data}"
+                        print(f"✗ {message}")
+
+                    if progress_callback:
+                        progress_callback(indexed_count + error_count, total, message)
+
+        except Exception as e:
+            print(f"\n✗ Parallel processing error: {str(e)}")
+            print("Falling back to sequential mode...")
+            # Fall back to sequential if parallel fails
+            remaining_files = files_to_index[indexed_count + error_count:]
+            seq_indexed, seq_errors = self._scan_sequential(remaining_files, progress_callback)
+            indexed_count += seq_indexed
+            error_count += seq_errors
+
+        return indexed_count, error_count
 
     def get_stats(self):
         """Get database statistics"""
@@ -317,10 +696,13 @@ class DocumentIndexer:
 
 
 if __name__ == '__main__':
+    # Required for multiprocessing on Windows
+    multiprocessing.freeze_support()
+
     print("=" * 80)
     print("Document Indexer")
     print("=" * 80)
 
     indexer = DocumentIndexer()
-    indexer.scan_and_index()
+    indexer.scan_and_index()  # Will use parallel processing by default
     indexer.get_stats()

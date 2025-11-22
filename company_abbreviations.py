@@ -1,42 +1,65 @@
-"""Module to handle company name and abbreviation mappings"""
-import openpyxl
+"""Module to handle abbreviation and keyword mappings"""
+import csv
 from pathlib import Path
 from config import DOCUMENT_PATH
 
 class CompanyAbbreviations:
     def __init__(self):
-        self.abbrev_to_name = {}  # Maps abbreviation to full company name
-        self.name_to_abbrev = {}  # Maps full company name to abbreviation
-        self.load_companies()
+        self.abbrev_to_keywords = {}  # Maps abbreviation to list of keywords
+        self.keyword_to_abbrev = {}   # Maps each keyword to its abbreviation
+        self.load_abbreviations()
 
-    def load_companies(self):
-        """Load company abbreviations from Excel file"""
-        companies_file = Path(DOCUMENT_PATH) / "PBIData" / "Biztech" / "companies.xlsx"
+    def load_abbreviations(self):
+        """Load abbreviations and keywords from CSV file"""
+        csv_file = Path(DOCUMENT_PATH) / "alternate_names.csv"
 
         try:
-            workbook = openpyxl.load_workbook(companies_file, read_only=True)
-            sheet = workbook.active
+            with open(csv_file, 'r', encoding='utf-8') as f:
+                reader = csv.reader(f)
 
-            # Skip header row, read data rows
-            for row in sheet.iter_rows(min_row=2, values_only=True):
-                if len(row) >= 2 and row[0] and row[1]:
-                    company_name = str(row[0]).strip()
-                    abbreviation = str(row[1]).strip()
+                # Skip header row if it exists
+                first_row = next(reader, None)
+                if first_row and first_row[0].lower() in ['abbreviation', 'abbrev', 'short']:
+                    # This was a header row, continue to data
+                    pass
+                elif first_row:
+                    # This was data, process it
+                    self._process_row(first_row)
 
-                    # Store both mappings
-                    self.abbrev_to_name[abbreviation.lower()] = company_name
-                    self.name_to_abbrev[company_name.lower()] = abbreviation
+                # Process remaining rows
+                for row in reader:
+                    self._process_row(row)
 
-            workbook.close()
-            print(f"Loaded {len(self.abbrev_to_name)} company abbreviations")
+            print(f"Loaded {len(self.abbrev_to_keywords)} abbreviations with keywords")
 
         except Exception as e:
-            print(f"Warning: Could not load company abbreviations: {e}")
+            print(f"Warning: Could not load abbreviations: {e}")
             # Continue without abbreviations rather than failing
+
+    def _process_row(self, row):
+        """Process a single CSV row"""
+        if len(row) < 2 or not row[0]:
+            return  # Skip empty or invalid rows
+
+        abbreviation = str(row[0]).strip().lower()
+        keywords = []
+
+        # Read up to 10 keywords from remaining columns
+        for i in range(1, min(len(row), 11)):
+            if row[i]:
+                keyword = str(row[i]).strip().lower()
+                if keyword:
+                    keywords.append(keyword)
+                    # Map keyword back to abbreviation
+                    self.keyword_to_abbrev[keyword] = abbreviation
+
+        # Store the abbreviation to keywords mapping
+        if keywords:
+            self.abbrev_to_keywords[abbreviation] = keywords
 
     def expand_query_terms(self, query):
         """
-        Expand query to include both abbreviations and full names
+        Expand query to include both abbreviations and keywords
 
         Args:
             query: Original search query string
@@ -52,21 +75,22 @@ class CompanyAbbreviations:
             word_lower = word.lower()
 
             # Check if this word is an abbreviation
-            if word_lower in self.abbrev_to_name:
-                full_name = self.abbrev_to_name[word_lower]
-                # Add both the abbreviation and the full name
-                expanded_terms.append({
-                    'original': word,
-                    'expansion': full_name,
-                    'type': 'abbreviation'
-                })
-            # Check if this word might be part of a company name
-            elif word_lower in self.name_to_abbrev:
-                abbrev = self.name_to_abbrev[word_lower]
+            if word_lower in self.abbrev_to_keywords:
+                keywords = self.abbrev_to_keywords[word_lower]
+                # Add all keywords for this abbreviation
+                for keyword in keywords:
+                    expanded_terms.append({
+                        'original': word,
+                        'expansion': keyword,
+                        'type': 'abbreviation'
+                    })
+            # Check if this word is a keyword
+            elif word_lower in self.keyword_to_abbrev:
+                abbrev = self.keyword_to_abbrev[word_lower]
                 expanded_terms.append({
                     'original': word,
                     'expansion': abbrev,
-                    'type': 'company_name'
+                    'type': 'keyword'
                 })
 
         return expanded_terms
@@ -77,35 +101,41 @@ class CompanyAbbreviations:
 
         Returns a list of alternative queries to try, including:
         - The original query
-        - Queries with abbreviations expanded
-        - Queries with company names converted to abbreviations
+        - Queries with abbreviations expanded to keywords
+        - Queries with keywords converted to abbreviations
         """
         query_lower = query.lower().strip()
         alternatives = [query]  # Always include original query
 
         # Check if the entire query is an abbreviation
-        if query_lower in self.abbrev_to_name:
-            alternatives.append(self.abbrev_to_name[query_lower])
+        if query_lower in self.abbrev_to_keywords:
+            # Add each keyword as an alternative
+            for keyword in self.abbrev_to_keywords[query_lower]:
+                if keyword not in alternatives:
+                    alternatives.append(keyword)
 
-        # Check if the entire query is a company name
-        if query_lower in self.name_to_abbrev:
-            alternatives.append(self.name_to_abbrev[query_lower])
+        # Check if the entire query is a keyword
+        if query_lower in self.keyword_to_abbrev:
+            abbrev = self.keyword_to_abbrev[query_lower]
+            if abbrev not in alternatives:
+                alternatives.append(abbrev)
 
         # Check for partial matches (words in the query)
         words = query.split()
         for word in words:
             word_lower = word.lower()
 
-            if word_lower in self.abbrev_to_name:
-                # Replace this word with the full company name
-                full_name = self.abbrev_to_name[word_lower]
-                expanded = query.replace(word, full_name, 1)
-                if expanded not in alternatives:
-                    alternatives.append(expanded)
+            # If this word is an abbreviation, expand to all keywords
+            if word_lower in self.abbrev_to_keywords:
+                for keyword in self.abbrev_to_keywords[word_lower]:
+                    # Replace this word with each keyword
+                    expanded = query.replace(word, keyword, 1)
+                    if expanded not in alternatives:
+                        alternatives.append(expanded)
 
-            if word_lower in self.name_to_abbrev:
-                # Replace with abbreviation
-                abbrev = self.name_to_abbrev[word_lower]
+            # If this word is a keyword, replace with abbreviation
+            if word_lower in self.keyword_to_abbrev:
+                abbrev = self.keyword_to_abbrev[word_lower]
                 abbreviated = query.replace(word, abbrev, 1)
                 if abbreviated not in alternatives:
                     alternatives.append(abbreviated)

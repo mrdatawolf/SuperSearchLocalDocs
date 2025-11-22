@@ -23,3 +23,11 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db
+
+# PyInstaller
+build/
+dist/
+*.spec
+
+# User Settings
+user_config.json
