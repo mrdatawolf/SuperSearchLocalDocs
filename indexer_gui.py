@@ -1,6 +1,6 @@
 """
-GUI for Document Indexer - Initial setup and configuration
-Allows users to configure paths and run the indexer
+GUI for Document Indexer - Supports multiple folder indexing
+Allows users to configure multiple paths and run the indexer
 """
 
 import tkinter as tk
@@ -11,10 +11,39 @@ import json
 import sys
 import os
 import multiprocessing
+import sqlite3
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import queue
 
 # Import indexer components
 from indexer import DocumentIndexer
-from config_manager import save_user_config, load_user_config
+from database_manager import (
+    add_indexed_folder, remove_indexed_folder,
+    get_all_indexed_folders, get_database_path
+)
+
+
+def index_folder_worker(folder_path, db_path, use_parallel):
+    """
+    Worker function that indexes a single folder - runs in separate process
+    Returns: (folder_path, indexed_count, error_count, success, error_message)
+    """
+    try:
+        # Create indexer for this folder
+        indexer = DocumentIndexer(document_path=folder_path, db_path=db_path)
+
+        # Run indexing (output goes to console, not captured)
+        indexed_count, error_count = indexer.scan_and_index(
+            use_parallel=use_parallel,
+            progress_callback=None
+        )
+
+        return (folder_path, indexed_count, error_count, True, None)
+
+    except Exception as e:
+        import traceback
+        error_msg = f"{str(e)}\n{traceback.format_exc()}"
+        return (folder_path, 0, 0, False, error_msg)
 
 
 class TextRedirector:
@@ -37,18 +66,16 @@ class TextRedirector:
 class IndexerGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("Document Search - Indexer Setup")
-        self.root.geometry("900x750")  # Larger window
+        self.root.title("Document Search - Multi-Folder Indexer")
+        self.root.geometry("1000x800")
         self.root.resizable(True, True)
 
-        # Load existing config
-        self.config = load_user_config()
+        # Track indexed folders
+        self.indexed_folders = []
+        self.load_indexed_folders()
 
         # Create UI
         self.create_widgets()
-
-        # Load saved paths if they exist
-        self.load_saved_config()
 
     def create_widgets(self):
         """Create the GUI layout"""
@@ -59,100 +86,123 @@ class IndexerGUI:
 
         title_label = ttk.Label(
             title_frame,
-            text="📁 Document Search Indexer",
+            text="📁 Document Search - Multi-Folder Indexer",
             font=('Arial', 16, 'bold')
         )
         title_label.pack()
 
         subtitle_label = ttk.Label(
             title_frame,
-            text="Configure paths and index your documents",
+            text="Index multiple document folders - each gets its own database",
             font=('Arial', 10)
         )
         subtitle_label.pack()
 
-        # Configuration frame
-        config_frame = ttk.LabelFrame(self.root, text="Configuration", padding="15")
-        config_frame.pack(fill=tk.X, padx=10, pady=10)
+        # Indexed Folders Frame
+        folders_frame = ttk.LabelFrame(self.root, text="Indexed Folders", padding="15")
+        folders_frame.pack(fill=tk.BOTH, expand=False, padx=10, pady=10)
 
-        # Document Path
-        ttk.Label(config_frame, text="Document Folder to Index:", font=('Arial', 10, 'bold')).grid(
-            row=0, column=0, sticky=tk.W, pady=(0, 5)
+        # Listbox with scrollbar for folders
+        list_frame = ttk.Frame(folders_frame)
+        list_frame.pack(fill=tk.BOTH, expand=True)
+
+        scrollbar = ttk.Scrollbar(list_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.folders_listbox = tk.Listbox(
+            list_frame,
+            height=6,
+            font=('Consolas', 9),
+            yscrollcommand=scrollbar.set
         )
+        self.folders_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=self.folders_listbox.yview)
 
-        doc_path_frame = ttk.Frame(config_frame)
-        doc_path_frame.grid(row=1, column=0, sticky=tk.EW, pady=(0, 15))
-        doc_path_frame.columnconfigure(0, weight=1)
+        # Buttons for folder management
+        folder_buttons_frame = ttk.Frame(folders_frame)
+        folder_buttons_frame.pack(fill=tk.X, pady=(10, 0))
 
-        self.doc_path_var = tk.StringVar()
-        self.doc_path_entry = ttk.Entry(doc_path_frame, textvariable=self.doc_path_var, width=50)
-        self.doc_path_entry.grid(row=0, column=0, sticky=tk.EW, padx=(0, 5))
+        ttk.Button(
+            folder_buttons_frame,
+            text="➕ Add Folder",
+            command=self.add_folder,
+            width=15
+        ).pack(side=tk.LEFT, padx=5)
 
-        ttk.Button(doc_path_frame, text="Browse...", command=self.browse_doc_path).grid(row=0, column=1)
+        ttk.Button(
+            folder_buttons_frame,
+            text="🔗 Link Existing DB",
+            command=self.link_existing_database,
+            width=15
+        ).pack(side=tk.LEFT, padx=5)
 
-        ttk.Label(config_frame, text="Folder containing documents to scan (e.g., C:\\Documents or \\\\server\\share)",
-                 font=('Arial', 9), foreground='gray').grid(row=2, column=0, sticky=tk.W, pady=(0, 10))
+        ttk.Button(
+            folder_buttons_frame,
+            text="➖ Remove Selected",
+            command=self.remove_folder,
+            width=15
+        ).pack(side=tk.LEFT, padx=5)
 
-        # Database Path
-        ttk.Label(config_frame, text="Database File Path:", font=('Arial', 10, 'bold')).grid(
-            row=3, column=0, sticky=tk.W, pady=(0, 5)
-        )
+        ttk.Button(
+            folder_buttons_frame,
+            text="🔄 Refresh List",
+            command=self.refresh_folders_list,
+            width=15
+        ).pack(side=tk.LEFT, padx=5)
 
-        db_path_frame = ttk.Frame(config_frame)
-        db_path_frame.grid(row=4, column=0, sticky=tk.EW, pady=(0, 15))
-        db_path_frame.columnconfigure(0, weight=1)
-
-        self.db_path_var = tk.StringVar(value="documents.sqlite3")
-        self.db_path_entry = ttk.Entry(db_path_frame, textvariable=self.db_path_var, width=50)
-        self.db_path_entry.grid(row=0, column=0, sticky=tk.EW, padx=(0, 5))
-
-        ttk.Button(db_path_frame, text="Browse...", command=self.browse_db_path).grid(row=0, column=1)
-
-        ttk.Label(config_frame, text="SQLite database file (will be created if it doesn't exist)",
-                 font=('Arial', 9), foreground='gray').grid(row=5, column=0, sticky=tk.W, pady=(0, 10))
-
-        config_frame.columnconfigure(0, weight=1)
+        ttk.Label(
+            folders_frame,
+            text="Each folder gets its own database. Use 'Link Existing DB' to use a pre-indexed database.",
+            font=('Arial', 9),
+            foreground='gray'
+        ).pack(pady=(5, 0))
 
         # Performance options frame
         perf_frame = ttk.LabelFrame(self.root, text="Performance Options", padding="15")
         perf_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
 
-        # Parallel processing checkbox
-        self.parallel_var = tk.BooleanVar(value=True)  # Default to enabled
+        # File-level parallel processing checkbox
+        self.parallel_var = tk.BooleanVar(value=True)
         self.parallel_check = ttk.Checkbutton(
             perf_frame,
-            text="⚡ Enable Fast Mode (parallel processing)",
+            text="⚡ Enable Fast Mode (parallel file processing)",
             variable=self.parallel_var,
             command=self.update_parallel_info
         )
         self.parallel_check.grid(row=0, column=0, sticky=tk.W, pady=(0, 5))
 
+        # Folder-level parallel processing checkbox
+        self.parallel_folders_var = tk.BooleanVar(value=True)
+        self.parallel_folders_check = ttk.Checkbutton(
+            perf_frame,
+            text="🚀 Index Multiple Folders Simultaneously (recommended for 8+ cores)",
+            variable=self.parallel_folders_var,
+            command=self.update_parallel_info
+        )
+        self.parallel_folders_check.grid(row=1, column=0, sticky=tk.W, pady=(0, 5))
+
         # CPU info label
         cpu_count = os.cpu_count() or 1
         workers = max(1, int(cpu_count * 0.75))
-        self.cpu_info_var = tk.StringVar(value=f"Using {workers} of {cpu_count} CPU cores for faster indexing")
+        self.cpu_info_var = tk.StringVar(value=f"Using {workers} of {cpu_count} CPU cores")
         self.cpu_info_label = ttk.Label(
             perf_frame,
             textvariable=self.cpu_info_var,
             font=('Arial', 9),
             foreground='#167E27'
         )
-        self.cpu_info_label.grid(row=1, column=0, sticky=tk.W)
+        self.cpu_info_label.grid(row=2, column=0, sticky=tk.W)
+
+        # Update info on startup
+        self.update_parallel_info()
 
         # Buttons frame
         button_frame = ttk.Frame(self.root, padding="10")
         button_frame.pack(fill=tk.X)
 
-        ttk.Button(
-            button_frame,
-            text="💾 Save Configuration",
-            command=self.save_config,
-            width=20
-        ).pack(side=tk.LEFT, padx=5)
-
         self.index_button = ttk.Button(
             button_frame,
-            text="▶ Start Indexing",
+            text="▶ Index All Folders",
             command=self.start_indexing,
             width=20
         )
@@ -160,8 +210,8 @@ class IndexerGUI:
 
         ttk.Button(
             button_frame,
-            text="📊 Show Statistics",
-            command=self.show_stats,
+            text="📊 Show All Statistics",
+            command=self.show_all_stats,
             width=20
         ).pack(side=tk.LEFT, padx=5)
 
@@ -181,8 +231,8 @@ class IndexerGUI:
         # Log output
         self.log_text = scrolledtext.ScrolledText(
             progress_frame,
-            height=20,  # Taller log window
-            width=100,  # Wider
+            height=20,
+            width=110,
             font=('Consolas', 9),
             wrap=tk.WORD,
             state=tk.DISABLED
@@ -200,69 +250,168 @@ class IndexerGUI:
         )
         status_bar.pack(fill=tk.X, side=tk.BOTTOM)
 
-    def load_saved_config(self):
-        """Load previously saved configuration"""
-        if 'document_path' in self.config:
-            self.doc_path_var.set(self.config['document_path'])
+    def load_indexed_folders(self):
+        """Load indexed folders from database manager"""
+        self.indexed_folders = get_all_indexed_folders()
 
-        if 'database_path' in self.config:
-            self.db_path_var.set(self.config['database_path'])
+    def refresh_folders_list(self):
+        """Refresh the folders listbox"""
+        self.load_indexed_folders()
+        self.folders_listbox.delete(0, tk.END)
 
-    def browse_doc_path(self):
-        """Browse for document folder"""
+        if not self.indexed_folders:
+            self.folders_listbox.insert(tk.END, "  (No folders indexed yet - click 'Add Folder' to start)")
+            self.folders_listbox.itemconfig(0, {'fg': 'gray'})
+        else:
+            for folder_info in self.indexed_folders:
+                display_text = f"  {folder_info['folder_path']}"
+                if not folder_info['db_exists']:
+                    display_text += " [NOT INDEXED YET]"
+                self.folders_listbox.insert(tk.END, display_text)
+
+    def add_folder(self):
+        """Add a new folder to index"""
         path = filedialog.askdirectory(
-            title="Select Document Folder to Index",
-            initialdir=self.doc_path_var.get() or os.path.expanduser("~")
+            title="Select Folder to Index",
+            initialdir=os.path.expanduser("~")
         )
-        if path:
-            self.doc_path_var.set(path)
 
-    def browse_db_path(self):
-        """Browse for database file"""
-        path = filedialog.asksaveasfilename(
-            title="Select or Create Database File",
-            defaultextension=".sqlite3",
-            filetypes=[("SQLite Database", "*.sqlite3"), ("All Files", "*.*")],
-            initialdir=os.path.dirname(self.db_path_var.get()) or os.getcwd()
-        )
-        if path:
-            self.db_path_var.set(path)
-
-    def save_config(self):
-        """Save configuration to user_config.json"""
-        doc_path = self.doc_path_var.get().strip()
-        db_path = self.db_path_var.get().strip()
-
-        if not doc_path:
-            messagebox.showwarning("Missing Path", "Please specify a document folder path")
+        if not path:
             return
 
-        if not db_path:
-            messagebox.showwarning("Missing Path", "Please specify a database file path")
-            return
+        # Normalize path
+        path = str(Path(path).resolve())
 
-        # Validate document path exists
-        if not os.path.exists(doc_path):
-            result = messagebox.askyesno(
-                "Path Not Found",
-                f"The document path does not exist:\n{doc_path}\n\nDo you want to save it anyway?"
-            )
-            if not result:
+        # Check if already added
+        for folder_info in self.indexed_folders:
+            if folder_info['folder_path'] == path:
+                messagebox.showinfo("Already Added", "This folder is already in the index list")
                 return
 
-        # Save to config
-        config_data = {
-            'document_path': doc_path,
-            'database_path': db_path
-        }
+        # Add to database manager
+        db_path = add_indexed_folder(path)
+        self.log_message(f"✓ Added folder: {path}")
+        self.log_message(f"  Database: {Path(db_path).name}\n")
 
-        if save_user_config(config_data):
-            self.config = config_data
-            self.log_message("✓ Configuration saved successfully")
-            self.status_var.set("Configuration saved")
-            messagebox.showinfo("Success", "Configuration has been saved!")
-        else:
-            messagebox.showerror("Error", "Failed to save configuration")
+        # Refresh list
+        self.refresh_folders_list()
+
+        # Update CPU info to reflect new folder count
+        self.update_parallel_info()
+
+    def link_existing_database(self):
+        """Link a folder to an existing database file without re-indexing"""
+        # Step 1: Select folder
+        folder_path = filedialog.askdirectory(
+            title="Select Folder (the documents location)",
+            initialdir=os.path.expanduser("~")
+        )
+
+        if not folder_path:
+            return
+
+        # Normalize path
+        folder_path = str(Path(folder_path).resolve())
+
+        # Check if folder exists
+        if not os.path.exists(folder_path):
+            messagebox.showerror("Folder Not Found", f"The selected folder does not exist:\n{folder_path}")
+            return
+
+        # Check if already added
+        for folder_info in self.indexed_folders:
+            if folder_info['folder_path'] == folder_path:
+                messagebox.showinfo("Already Added", "This folder is already in the index list")
+                return
+
+        # Step 2: Select existing database file
+        db_file = filedialog.askopenfilename(
+            title="Select Existing Database File",
+            initialdir=os.path.expanduser("~"),
+            filetypes=[
+                ("SQLite Database", "*.sqlite3"),
+                ("Database Files", "*.db"),
+                ("All Files", "*.*")
+            ]
+        )
+
+        if not db_file:
+            return
+
+        # Normalize path
+        db_file = str(Path(db_file).resolve())
+
+        # Validate database file exists
+        if not os.path.exists(db_file):
+            messagebox.showerror("Database Not Found", f"The selected database file does not exist:\n{db_file}")
+            return
+
+        # Confirm the link
+        result = messagebox.askyesno(
+            "Link Folder to Database",
+            f"Link this folder:\n{folder_path}\n\n"
+            f"To this database:\n{Path(db_file).name}\n\n"
+            f"This will make the database searchable without re-indexing.\n"
+            f"Continue?"
+        )
+
+        if not result:
+            return
+
+        try:
+            # Link folder to existing database
+            db_path = add_indexed_folder(folder_path, existing_db_path=db_file)
+
+            self.log_message(f"✓ Linked folder to existing database:")
+            self.log_message(f"  Folder: {folder_path}")
+            self.log_message(f"  Database: {Path(db_path).name}\n")
+
+            # Refresh list
+            self.refresh_folders_list()
+
+            # Update CPU info
+            self.update_parallel_info()
+
+            messagebox.showinfo(
+                "Link Successful",
+                f"Folder successfully linked to database!\n\n"
+                f"The database is now searchable without re-indexing.\n"
+                f"Run DocumentSearch.exe to search this folder."
+            )
+
+        except FileNotFoundError as e:
+            messagebox.showerror("Error", str(e))
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to link folder to database:\n{str(e)}")
+
+    def remove_folder(self):
+        """Remove selected folder from index"""
+        selection = self.folders_listbox.curselection()
+        if not selection:
+            messagebox.showwarning("No Selection", "Please select a folder to remove")
+            return
+
+        index = selection[0]
+        if not self.indexed_folders or index >= len(self.indexed_folders):
+            return
+
+        folder_info = self.indexed_folders[index]
+        folder_path = folder_info['folder_path']
+
+        # Confirm removal
+        result = messagebox.askyesno(
+            "Remove Folder",
+            f"Remove this folder from the index?\n\n{folder_path}\n\n"
+            f"Note: The database file will remain but won't be used for searches."
+        )
+
+        if result:
+            remove_indexed_folder(folder_path)
+            self.log_message(f"✓ Removed folder: {folder_path}\n")
+            self.refresh_folders_list()
+
+            # Update CPU info to reflect new folder count
+            self.update_parallel_info()
 
     def log_message(self, message):
         """Add message to log output"""
@@ -280,35 +429,37 @@ class IndexerGUI:
 
     def update_parallel_info(self):
         """Update the CPU info label when parallel checkbox changes"""
-        if self.parallel_var.get():
-            cpu_count = os.cpu_count() or 1
+        cpu_count = os.cpu_count() or 1
+        file_parallel = self.parallel_var.get()
+        folder_parallel = self.parallel_folders_var.get()
+
+        if folder_parallel and file_parallel:
+            # Both enabled - dynamic allocation
+            num_folders = len(self.indexed_folders) if self.indexed_folders else 1
+            folder_workers = min(num_folders, max(2, cpu_count // 4))  # 2-4 folder workers
+            cores_per_folder = cpu_count // folder_workers
+            self.cpu_info_var.set(
+                f"Using all {cpu_count} cores: {folder_workers} folders in parallel, "
+                f"~{cores_per_folder} cores per folder"
+            )
+        elif file_parallel:
+            # Only file-level parallel
             workers = max(1, int(cpu_count * 0.75))
-            self.cpu_info_var.set(f"Using {workers} of {cpu_count} CPU cores for faster indexing")
+            self.cpu_info_var.set(f"Using {workers} of {cpu_count} cores (folders indexed sequentially)")
         else:
-            self.cpu_info_var.set("Sequential mode - using 1 core (slower but lower CPU usage)")
+            # Sequential mode
+            self.cpu_info_var.set("Sequential mode - using 1 core (slowest but lowest CPU usage)")
 
     def start_indexing(self):
-        """Start the indexing process in a background thread"""
-        doc_path = self.doc_path_var.get().strip()
-        db_path = self.db_path_var.get().strip()
-
-        # Validate paths
-        if not doc_path:
-            messagebox.showwarning("Missing Path", "Please specify a document folder path")
-            return
-
-        if not db_path:
-            messagebox.showwarning("Missing Path", "Please specify a database file path")
-            return
-
-        if not os.path.exists(doc_path):
-            messagebox.showerror("Path Not Found", f"Document folder does not exist:\n{doc_path}")
+        """Start the indexing process for all folders"""
+        if not self.indexed_folders:
+            messagebox.showwarning("No Folders", "Please add at least one folder to index")
             return
 
         # Confirm before starting
         result = messagebox.askyesno(
             "Start Indexing",
-            f"Index all documents in:\n{doc_path}\n\nThis may take a while. Continue?"
+            f"Index {len(self.indexed_folders)} folder(s)?\n\nThis may take a while. Continue?"
         )
 
         if not result:
@@ -320,104 +471,152 @@ class IndexerGUI:
         self.progress_bar.start(10)
         self.status_var.set("Indexing...")
 
-        # Get parallel processing setting
-        use_parallel = self.parallel_var.get()
+        # Get parallel processing settings
+        use_file_parallel = self.parallel_var.get()
+        use_folder_parallel = self.parallel_folders_var.get()
 
         # Run indexing in background thread
-        thread = threading.Thread(target=self.run_indexing, args=(doc_path, db_path, use_parallel))
+        thread = threading.Thread(target=self.run_indexing, args=(use_file_parallel, use_folder_parallel))
         thread.daemon = True
         thread.start()
 
-    def progress_callback(self, current, total, message):
-        """Callback for indexing progress updates"""
-        # This is called from the worker thread, so use root.after for thread-safety
-        # We don't actually need to update anything here since scan_and_index handles logging
-        pass
-
-    def run_indexing(self, doc_path, db_path, use_parallel):
-        """Run the indexing process (called in background thread)"""
-        # Save original stdout
-        original_stdout = sys.stdout
-
+    def run_indexing(self, use_file_parallel, use_folder_parallel):
+        """Run the indexing process for all folders (called in background thread)"""
         try:
             self.log_message("=" * 80)
-            self.log_message("Document Indexer Starting...")
+            self.log_message("MULTI-FOLDER INDEXING STARTING")
             self.log_message("=" * 80)
-            self.log_message(f"Document path: {doc_path}")
-            self.log_message(f"Database path: {db_path}")
-            self.log_message(f"Parallel processing: {'Enabled' if use_parallel else 'Disabled'}")
+            self.log_message(f"Folders to index: {len(self.indexed_folders)}")
+            self.log_message(f"File-level parallel processing: {'Enabled' if use_file_parallel else 'Disabled'}")
+            self.log_message(f"Folder-level parallel processing: {'Enabled' if use_folder_parallel else 'Disabled'}")
             self.log_message("")
 
-            # Create indexer with custom paths
-            indexer = DocumentIndexer()
-            indexer.document_path = doc_path
-            indexer.db_path = db_path
+            # Filter out folders that don't exist
+            valid_folders = []
+            for folder_info in self.indexed_folders:
+                if os.path.exists(folder_info['folder_path']):
+                    valid_folders.append(folder_info)
+                else:
+                    self.log_message(f"⚠️  WARNING: Folder not found, skipping: {folder_info['folder_path']}")
 
-            # Initialize database
-            self.log_message("Initializing database...")
-            indexer.init_database()
-            self.log_message("")
+            if not valid_folders:
+                self.log_message("\n❌ ERROR: No valid folders to index!")
+                self.root.after(0, self.indexing_failed, "No valid folders found")
+                return
 
-            # Redirect stdout to the GUI log window
-            sys.stdout = TextRedirector(self.log_text, "stdout")
+            total_indexed = 0
+            total_errors = 0
 
-            # Use the built-in scan_and_index which supports parallel processing
-            # This method handles all the logging and progress reporting
-            indexed_count, error_count = indexer.scan_and_index(
-                use_parallel=use_parallel,
-                progress_callback=self.progress_callback
-            )
+            if use_folder_parallel and len(valid_folders) > 1:
+                # PARALLEL FOLDER INDEXING with dynamic reallocation
+                cpu_count = os.cpu_count() or 1
+                max_workers = min(len(valid_folders), max(2, cpu_count // 4))
 
-            # Restore stdout before showing statistics
-            sys.stdout = original_stdout
+                self.log_message(f"🚀 Using {max_workers} worker processes for folder-level parallelism")
+                self.log_message(f"   Workers will dynamically pick up folders as they complete")
+                self.log_message("")
 
-            # Show database statistics (using log_message for GUI display)
+                # Track progress
+                completed = 0
+                in_progress = set()
+
+                with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                    # Submit all folder tasks
+                    future_to_folder = {
+                        executor.submit(
+                            index_folder_worker,
+                            folder_info['folder_path'],
+                            folder_info['db_path'],
+                            use_file_parallel
+                        ): folder_info
+                        for folder_info in valid_folders
+                    }
+
+                    # Process results as they complete (dynamic reallocation!)
+                    for future in as_completed(future_to_folder):
+                        folder_info = future_to_folder[future]
+                        folder_path = folder_info['folder_path']
+
+                        try:
+                            # Get result from worker
+                            result_path, indexed_count, error_count, success, error_msg = future.result()
+
+                            completed += 1
+
+                            if success:
+                                total_indexed += indexed_count
+                                total_errors += error_count
+                                self.log_message(
+                                    f"✓ [{completed}/{len(valid_folders)}] Completed: {Path(folder_path).name} "
+                                    f"({indexed_count} documents, {error_count} errors)"
+                                )
+                            else:
+                                self.log_message(f"❌ [{completed}/{len(valid_folders)}] Failed: {Path(folder_path).name}")
+                                self.log_message(f"   Error: {error_msg}")
+
+                        except Exception as e:
+                            completed += 1
+                            self.log_message(f"❌ [{completed}/{len(valid_folders)}] Exception: {Path(folder_path).name}")
+                            self.log_message(f"   Error: {str(e)}")
+
+            else:
+                # SEQUENTIAL FOLDER INDEXING (original behavior)
+                if not use_folder_parallel and len(valid_folders) > 1:
+                    self.log_message("Indexing folders sequentially (folder-level parallelism disabled)")
+                self.log_message("")
+
+                for i, folder_info in enumerate(valid_folders, 1):
+                    folder_path = folder_info['folder_path']
+                    db_path = folder_info['db_path']
+
+                    self.log_message(f"\n{'='*80}")
+                    self.log_message(f"INDEXING FOLDER {i}/{len(valid_folders)}")
+                    self.log_message(f"{'='*80}")
+                    self.log_message(f"Folder: {folder_path}")
+                    self.log_message(f"Database: {Path(db_path).name}")
+                    self.log_message("")
+
+                    # Call worker function directly (no separate process)
+                    result_path, indexed_count, error_count, success, error_msg = index_folder_worker(
+                        folder_path, db_path, use_file_parallel
+                    )
+
+                    if success:
+                        total_indexed += indexed_count
+                        total_errors += error_count
+                        self.log_message(f"\n✓ Folder complete: {indexed_count} documents indexed, {error_count} errors")
+                    else:
+                        self.log_message(f"\n❌ Folder failed!")
+                        self.log_message(f"Error: {error_msg}")
+
+            # Final summary
             self.log_message("")
             self.log_message("=" * 80)
-            self.log_message("Database Statistics:")
+            self.log_message("ALL FOLDERS COMPLETE")
             self.log_message("=" * 80)
-            import sqlite3
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
-
-            cursor.execute('SELECT COUNT(*) FROM documents')
-            total_docs = cursor.fetchone()[0]
-            self.log_message(f"Total documents in database: {total_docs}")
-
-            cursor.execute('SELECT file_type, COUNT(*) FROM documents GROUP BY file_type ORDER BY COUNT(*) DESC')
-            by_type = cursor.fetchall()
+            self.log_message(f"Total documents indexed: {total_indexed}")
+            self.log_message(f"Total errors: {total_errors}")
             self.log_message("")
-            self.log_message("By file type:")
-            for file_type, count in by_type:
-                self.log_message(f"  {file_type}: {count}")
 
-            conn.close()
-            self.log_message("=" * 80)
-
-            self.root.after(0, self.indexing_complete, indexed_count, error_count)
+            self.root.after(0, self.indexing_complete, total_indexed, total_errors)
 
         except Exception as e:
-            # Restore stdout in case of error
-            sys.stdout = original_stdout
-
             self.log_message(f"\n❌ ERROR: {str(e)}")
             import traceback
             self.log_message(traceback.format_exc())
             self.root.after(0, self.indexing_failed, str(e))
 
-        finally:
-            # Ensure stdout is always restored
-            sys.stdout = original_stdout
-
     def indexing_complete(self, indexed_count, error_count):
         """Called when indexing completes successfully"""
         self.progress_bar.stop()
         self.index_button.config(state=tk.NORMAL)
-        self.status_var.set(f"Indexing complete! {indexed_count} documents indexed")
+        self.status_var.set(f"Complete! {indexed_count} documents indexed")
 
         messagebox.showinfo(
             "Indexing Complete",
-            f"Successfully indexed {indexed_count} documents\nErrors: {error_count}"
+            f"Successfully indexed {indexed_count} documents\n"
+            f"Errors: {error_count}\n\n"
+            f"You can now use DocumentSearch to search your documents!"
         )
 
     def indexing_failed(self, error_msg):
@@ -431,33 +630,48 @@ class IndexerGUI:
             f"An error occurred during indexing:\n{error_msg}"
         )
 
-    def show_stats(self):
-        """Show database statistics"""
-        db_path = self.db_path_var.get().strip()
-
-        if not db_path or not os.path.exists(db_path):
-            messagebox.showwarning("Database Not Found", "Database file does not exist")
+    def show_all_stats(self):
+        """Show statistics for all databases"""
+        if not self.indexed_folders:
+            messagebox.showinfo("No Databases", "No folders have been indexed yet")
             return
 
         try:
-            import sqlite3
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
+            stats_msg = "DATABASE STATISTICS\n" + "=" * 50 + "\n\n"
 
-            cursor.execute('SELECT COUNT(*) FROM documents')
-            total_docs = cursor.fetchone()[0]
+            total_docs = 0
+            for folder_info in self.indexed_folders:
+                db_path = folder_info['db_path']
+                folder_path = folder_info['folder_path']
 
-            cursor.execute('SELECT file_type, COUNT(*) FROM documents GROUP BY file_type')
-            by_type = cursor.fetchall()
+                if not os.path.exists(db_path):
+                    stats_msg += f"📁 {folder_path}\n"
+                    stats_msg += "   (Not indexed yet)\n\n"
+                    continue
 
-            conn.close()
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
 
-            # Build stats message
-            stats_msg = f"Total documents: {total_docs}\n\nBy file type:\n"
-            for file_type, count in by_type:
-                stats_msg += f"  {file_type}: {count}\n"
+                cursor.execute('SELECT COUNT(*) FROM documents')
+                doc_count = cursor.fetchone()[0]
+                total_docs += doc_count
 
-            messagebox.showinfo("Database Statistics", stats_msg)
+                stats_msg += f"📁 {folder_path}\n"
+                stats_msg += f"   Documents: {doc_count}\n"
+
+                cursor.execute('SELECT file_type, COUNT(*) FROM documents GROUP BY file_type')
+                by_type = cursor.fetchall()
+                if by_type:
+                    for file_type, count in by_type[:3]:  # Show top 3 types
+                        stats_msg += f"     • {file_type}: {count}\n"
+
+                conn.close()
+                stats_msg += "\n"
+
+            stats_msg += "=" * 50 + "\n"
+            stats_msg += f"TOTAL DOCUMENTS: {total_docs}"
+
+            messagebox.showinfo("Statistics", stats_msg)
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to read database:\n{str(e)}")
@@ -470,6 +684,7 @@ def main():
 
     root = tk.Tk()
     app = IndexerGUI(root)
+    app.refresh_folders_list()  # Initial load
     root.mainloop()
 
 

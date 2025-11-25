@@ -120,13 +120,60 @@
             border: 1px solid #e0e0e0;
             border-radius: 8px;
             transition: all 0.3s;
-            cursor: pointer;
         }
 
         .result-item:hover {
             border-color: #167E27;
             box-shadow: 0 5px 15px rgba(22, 126, 39, 0.2);
             transform: translateY(-2px);
+        }
+
+        .result-content {
+            cursor: pointer;
+        }
+
+        .result-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #f0f0f0;
+        }
+
+        .action-btn {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid #e0e0e0;
+            background: white;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+        }
+
+        .action-btn:hover {
+            background: #167E27;
+            color: white;
+            border-color: #167E27;
+            transform: translateY(-1px);
+        }
+
+        .action-btn:active {
+            transform: translateY(0);
+        }
+
+        .action-btn-primary {
+            background: #167E27;
+            color: white;
+            border-color: #167E27;
+        }
+
+        .action-btn-primary:hover {
+            background: #0d5c1e;
         }
 
         .result-title {
@@ -829,6 +876,16 @@
                     <div class="hint">Root folder to scan for documents (e.g., \\192.168.203.207\Shared Folders)</div>
                     <div class="default-value" id="defaultDocumentPath"></div>
                 </div>
+
+                <div class="setting-item">
+                    <label for="settingDefaultAction">Default Click Action on Search Results</label>
+                    <select id="settingDefaultAction" style="width: 100%; padding: 10px 15px; border: 1px solid #e0e0e0; border-radius: 6px; font-size: 14px;">
+                        <option value="open">Open file in associated program</option>
+                        <option value="copy">Copy file path to clipboard</option>
+                        <option value="folder">Open folder location</option>
+                    </select>
+                    <div class="hint">Choose what happens when you click on a search result</div>
+                </div>
             </div>
             <div class="modal-footer">
                 <button class="btn-danger" onclick="resetSettings()">Reset to Defaults</button>
@@ -966,6 +1023,7 @@
         // Current page state
         let currentPage = 1;
         let currentSearchData = null;
+        let defaultAction = 'open'; // Default action for clicking results
 
         // File type icons
         const fileIcons = {
@@ -1126,18 +1184,38 @@
                 } else {
                     resultsContent.innerHTML = data.results.map(result => {
                         const icon = fileIcons[result.file_type] || '📄';
+                        const escapedPath = result.file_path.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+                        // Determine which button should be primary based on default action
+                        const openPrimary = defaultAction === 'open' ? 'action-btn-primary' : '';
+                        const copyPrimary = defaultAction === 'copy' ? 'action-btn-primary' : '';
+                        const folderPrimary = defaultAction === 'folder' ? 'action-btn-primary' : '';
+
                         return `
-                            <div class="result-item" onclick="openDocument('${result.file_path.replace(/\\/g, '\\\\')}')">
-                                <div class="result-title">
-                                    <span class="file-icon">${icon}</span>
-                                    ${result.file_name}
-                                    <span class="result-type">${result.file_type}</span>
+                            <div class="result-item">
+                                <div class="result-content" onclick="handleResultClick('${escapedPath}')">
+                                    <div class="result-title">
+                                        <span class="file-icon">${icon}</span>
+                                        ${result.file_name}
+                                        <span class="result-type">${result.file_type}</span>
+                                    </div>
+                                    <div class="result-path">${result.file_path}</div>
+                                    <div class="result-snippet">${result.snippet}</div>
+                                    <div class="result-meta">
+                                        <span>Size: ${formatFileSize(result.file_size)}</span>
+                                        <span>Modified: ${formatDate(result.modified_date)}</span>
+                                    </div>
                                 </div>
-                                <div class="result-path">${result.file_path}</div>
-                                <div class="result-snippet">${result.snippet}</div>
-                                <div class="result-meta">
-                                    <span>Size: ${formatFileSize(result.file_size)}</span>
-                                    <span>Modified: ${formatDate(result.modified_date)}</span>
+                                <div class="result-actions">
+                                    <button class="action-btn ${openPrimary}" onclick="openFile('${escapedPath}', event)" title="Open file">
+                                        📂 Open File
+                                    </button>
+                                    <button class="action-btn ${copyPrimary}" onclick="copyFilePath('${escapedPath}', event)" title="Copy path">
+                                        📋 Copy Path
+                                    </button>
+                                    <button class="action-btn ${folderPrimary}" onclick="openFolderLocation('${escapedPath}', event)" title="Open folder">
+                                        📁 Open Folder
+                                    </button>
                                 </div>
                             </div>
                         `;
@@ -1159,11 +1237,37 @@
             }
         }
 
-        // Open document (copy path to clipboard since we can't open network paths directly)
-        function openDocument(filePath) {
+        // Action: Open file in associated program
+        async function openFile(filePath, event) {
+            if (event) event.stopPropagation();
+
+            try {
+                const response = await fetch('/api/file/open', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ file_path: filePath })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    alert('Error opening file: ' + (data.error || 'Unknown error'));
+                }
+                // Success - file opened, no alert needed
+            } catch (error) {
+                alert('Network error: ' + error.message);
+            }
+        }
+
+        // Action: Copy file path to clipboard
+        function copyFilePath(filePath, event) {
+            if (event) event.stopPropagation();
+
             if (navigator.clipboard) {
                 navigator.clipboard.writeText(filePath).then(() => {
-                    alert('File path copied to clipboard!\n\n' + filePath + '\n\nYou can paste this into Windows Explorer to open the file.');
+                    showToast('✓ File path copied to clipboard');
                 }).catch(() => {
                     prompt('Copy this file path:', filePath);
                 });
@@ -1171,6 +1275,83 @@
                 prompt('Copy this file path:', filePath);
             }
         }
+
+        // Action: Open folder location
+        async function openFolderLocation(filePath, event) {
+            if (event) event.stopPropagation();
+
+            try {
+                const response = await fetch('/api/file/open-folder', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ file_path: filePath })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    alert('Error opening folder: ' + (data.error || 'Unknown error'));
+                }
+                // Success - folder opened, no alert needed
+            } catch (error) {
+                alert('Network error: ' + error.message);
+            }
+        }
+
+        // Handle result item click (uses default action)
+        function handleResultClick(filePath) {
+            switch (defaultAction) {
+                case 'open':
+                    openFile(filePath);
+                    break;
+                case 'copy':
+                    copyFilePath(filePath);
+                    break;
+                case 'folder':
+                    openFolderLocation(filePath);
+                    break;
+            }
+        }
+
+        // Show toast notification
+        function showToast(message) {
+            const toast = document.createElement('div');
+            toast.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: #167E27;
+                color: white;
+                padding: 15px 25px;
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+                z-index: 10000;
+                animation: slideIn 0.3s ease-out;
+            `;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+
+            setTimeout(() => {
+                toast.style.animation = 'slideOut 0.3s ease-out';
+                setTimeout(() => toast.remove(), 300);
+            }, 2000);
+        }
+
+        // Add CSS animations for toast
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes slideIn {
+                from { transform: translateX(400px); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+            @keyframes slideOut {
+                from { transform: translateX(0); opacity: 1; }
+                to { transform: translateX(400px); opacity: 0; }
+            }
+        `;
+        document.head.appendChild(style);
 
         // Toggle filters visibility
         function toggleFilters() {
@@ -1347,6 +1528,10 @@
                 // Populate inputs
                 document.getElementById('settingDatabasePath').value = currentSettings.database_path || '';
                 document.getElementById('settingDocumentPath').value = currentSettings.document_path || '';
+                document.getElementById('settingDefaultAction').value = currentSettings.default_action || 'open';
+
+                // Update current default action
+                defaultAction = currentSettings.default_action || 'open';
 
                 // Show defaults
                 document.getElementById('defaultDatabasePath').textContent =
@@ -1371,12 +1556,13 @@
         async function saveSettings() {
             const newSettings = {
                 database_path: document.getElementById('settingDatabasePath').value.trim(),
-                document_path: document.getElementById('settingDocumentPath').value.trim()
+                document_path: document.getElementById('settingDocumentPath').value.trim(),
+                default_action: document.getElementById('settingDefaultAction').value
             };
 
-            // Remove empty values
+            // Remove empty values (except default_action which always has a value)
             Object.keys(newSettings).forEach(key => {
-                if (!newSettings[key]) {
+                if (!newSettings[key] && key !== 'default_action') {
                     delete newSettings[key];
                 }
             });
@@ -1393,8 +1579,11 @@
                 const data = await response.json();
 
                 if (response.ok) {
+                    // Update the default action immediately
+                    defaultAction = newSettings.default_action;
+
                     document.getElementById('settingsAlert').innerHTML =
-                        '<div class="alert alert-success">✅ Settings saved successfully! Reload the page to apply changes.</div>';
+                        '<div class="alert alert-success">✅ Settings saved successfully!</div>';
 
                     // Reload stats to reflect new database
                     setTimeout(() => {
@@ -1518,8 +1707,9 @@
             renderPopularWords();
         };
 
-        // Load stats and popular words on page load
+        // Load stats, settings, and popular words on page load
         loadStats();
+        loadSettings();
         loadPopularWords();
 
         // Show initial message

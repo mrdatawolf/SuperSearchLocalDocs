@@ -9,6 +9,7 @@ from pathlib import Path
 from config import DATABASE_PATH, SERVER_HOST, SERVER_PORT, DOCUMENT_PATH
 from config_manager import get_all_config, save_user_config, reset_to_defaults
 from company_abbreviations import get_company_abbreviations
+from database_manager import get_all_database_paths, get_all_indexed_folders
 
 app = Flask(__name__)
 
@@ -23,8 +24,22 @@ def initialize():
         company_abbrev = get_company_abbreviations()
 
 
+def get_all_db_connections():
+    """Get connections to all indexed databases"""
+    db_paths = get_all_database_paths()
+    connections = []
+
+    for db_path in db_paths:
+        if os.path.exists(db_path):
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            connections.append((db_path, conn))
+
+    return connections
+
+
 def get_db_connection():
-    """Get database connection using current config"""
+    """Get database connection using current config (legacy - for settings UI)"""
     config = get_all_config()
     db_path = config.get('database_path', DATABASE_PATH)
     conn = sqlite3.connect(db_path)
@@ -40,7 +55,7 @@ def index():
 
 @app.route('/api/search')
 def search():
-    """Search API endpoint with filtering support"""
+    """Search API endpoint with filtering support - queries all databases"""
     query = request.args.get('q', '').strip()
 
     if not query:
@@ -60,8 +75,18 @@ def search():
     per_page = int(request.args.get('per_page', 100))
     offset = (page - 1) * per_page
 
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    # Get connections to all databases
+    db_connections = get_all_db_connections()
+
+    if not db_connections:
+        return jsonify({
+            'results': [],
+            'count': 0,
+            'query': query,
+            'error': 'No databases found. Please index some folders first.'
+        }), 404
+
+    all_results = []  # Will collect results from all databases
 
     def escape_fts5_query(text):
         """Escape special characters for FTS5 queries"""
@@ -145,17 +170,7 @@ def search():
             where_clause += ' AND d.file_size <= ?'
             params.append(int(size_max))
 
-        # First, get the total count of matching documents
-        count_sql = f'''
-            SELECT COUNT(*)
-            FROM documents_fts
-            JOIN documents d ON documents_fts.rowid = d.id
-            {where_clause}
-        '''
-        cursor.execute(count_sql, params)
-        total_count = cursor.fetchone()[0]
-
-        # Now get the actual results with limit
+        # Query SQL (without LIMIT/OFFSET - we'll do that after merging)
         sql = f'''
             SELECT
                 d.id,
@@ -173,59 +188,77 @@ def search():
             {where_clause}
         '''
 
-        # Add sorting
+        # Query each database and collect results
+        for db_path, conn in db_connections:
+            try:
+                cursor = conn.cursor()
+                cursor.execute(sql, params)
+
+                for row in cursor.fetchall():
+                    # Build a smart snippet that shows where the match occurred
+                    snippet_text = row['snippet'] if row['snippet'] else ''
+
+                    # If snippet is empty or doesn't contain a mark, check if match was in filename or folder
+                    if not snippet_text or '<mark>' not in snippet_text:
+                        if query.lower() in row['file_name'].lower():
+                            snippet_text = f"Match in filename: {row['file_name']}"
+                        elif row['folder_path'] and query.lower() in row['folder_path'].lower():
+                            snippet_text = f"Match in folder: {row['folder_path']}"
+                        else:
+                            snippet_text = 'No preview available'
+
+                    all_results.append({
+                        'id': row['id'],
+                        'file_name': row['file_name'],
+                        'file_path': row['file_path'],
+                        'file_type': row['file_type'],
+                        'file_size': row['file_size'],
+                        'modified_date': row['modified_date'],
+                        'indexed_date': row['indexed_date'],
+                        'snippet': snippet_text,
+                        'rank': row['rank'],
+                        'db_source': Path(db_path).name  # Track which database this came from
+                    })
+
+                conn.close()
+            except Exception as e:
+                conn.close()
+                print(f"Error querying database {db_path}: {e}")
+                continue
+
+        # Sort all results
         if sort_by == 'date':
-            sql += ' ORDER BY d.modified_date DESC'
+            all_results.sort(key=lambda x: x.get('modified_date', ''), reverse=True)
         elif sort_by == 'name':
-            sql += ' ORDER BY d.file_name ASC'
+            all_results.sort(key=lambda x: x.get('file_name', '').lower())
         elif sort_by == 'size':
-            sql += ' ORDER BY d.file_size DESC'
-        else:  # relevance (default)
-            sql += ' ORDER BY rank'
+            all_results.sort(key=lambda x: x.get('file_size', 0), reverse=True)
+        else:  # relevance (default) - rank is negative, so higher (closer to 0) is better
+            all_results.sort(key=lambda x: x.get('rank', -999999), reverse=True)
 
-        sql += ' LIMIT ? OFFSET ?'
-        params.extend([per_page, offset])
+        # Apply pagination to merged results
+        total_count = len(all_results)
+        start_idx = offset
+        end_idx = offset + per_page
+        paginated_results = all_results[start_idx:end_idx]
 
-        cursor.execute(sql, params)
-
-        results = []
-        for row in cursor.fetchall():
-            # Build a smart snippet that shows where the match occurred
-            snippet_text = row['snippet'] if row['snippet'] else ''
-
-            # If snippet is empty or doesn't contain a mark, check if match was in filename or folder
-            if not snippet_text or '<mark>' not in snippet_text:
-                if query.lower() in row['file_name'].lower():
-                    snippet_text = f"Match in filename: {row['file_name']}"
-                elif row['folder_path'] and query.lower() in row['folder_path'].lower():
-                    snippet_text = f"Match in folder: {row['folder_path']}"
-                else:
-                    snippet_text = 'No preview available'
-
-            results.append({
-                'id': row['id'],
-                'file_name': row['file_name'],
-                'file_path': row['file_path'],
-                'file_type': row['file_type'],
-                'file_size': row['file_size'],
-                'modified_date': row['modified_date'],
-                'indexed_date': row['indexed_date'],
-                'snippet': snippet_text
-            })
-
-        conn.close()
+        # Remove rank and db_source from final results (internal use only)
+        for result in paginated_results:
+            result.pop('rank', None)
+            result.pop('db_source', None)
 
         # Calculate total pages
         total_pages = (total_count + per_page - 1) // per_page
 
         return jsonify({
-            'results': results,
+            'results': paginated_results,
             'count': total_count,
-            'displayed': len(results),
+            'displayed': len(paginated_results),
             'query': query,
             'page': page,
             'per_page': per_page,
             'total_pages': total_pages,
+            'databases_queried': len(db_connections),
             'filters': {
                 'fileTypes': file_types,
                 'scope': search_scope,
@@ -234,7 +267,13 @@ def search():
         })
 
     except Exception as e:
-        conn.close()
+        # Close any remaining connections
+        for db_path, conn in db_connections:
+            try:
+                conn.close()
+            except:
+                pass
+
         return jsonify({
             'results': [],
             'count': 0,
@@ -245,47 +284,59 @@ def search():
 
 @app.route('/api/stats')
 def stats():
-    """Get database statistics"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    """Get database statistics - aggregated across all databases"""
+    db_connections = get_all_db_connections()
 
-    cursor.execute('SELECT COUNT(*) as count FROM documents')
-    total = cursor.fetchone()['count']
+    if not db_connections:
+        return jsonify({
+            'total': 0,
+            'by_type': [],
+            'error': 'No databases found'
+        })
 
-    cursor.execute('SELECT file_type, COUNT(*) as count FROM documents GROUP BY file_type ORDER BY count DESC')
-    by_type = [{'type': row['file_type'], 'count': row['count']} for row in cursor.fetchall()]
+    total = 0
+    type_counts = {}
 
-    conn.close()
+    # Aggregate stats from all databases
+    for db_path, conn in db_connections:
+        try:
+            cursor = conn.cursor()
+
+            cursor.execute('SELECT COUNT(*) as count FROM documents')
+            total += cursor.fetchone()['count']
+
+            cursor.execute('SELECT file_type, COUNT(*) as count FROM documents GROUP BY file_type')
+            for row in cursor.fetchall():
+                file_type = row['file_type']
+                count = row['count']
+                type_counts[file_type] = type_counts.get(file_type, 0) + count
+
+            conn.close()
+        except Exception as e:
+            conn.close()
+            print(f"Error getting stats from {db_path}: {e}")
+            continue
+
+    # Convert type_counts dict to sorted list
+    by_type = [{'type': ftype, 'count': count} for ftype, count in type_counts.items()]
+    by_type.sort(key=lambda x: x['count'], reverse=True)
 
     return jsonify({
         'total': total,
-        'by_type': by_type
+        'by_type': by_type,
+        'databases_count': len(db_connections)
     })
 
 
 @app.route('/api/top-words')
 def top_words():
-    """Get top 10 most common words from indexed content"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    """Get top 10 most common words from indexed content - across all databases"""
+    db_connections = get_all_db_connections()
 
-    # Get top words from FTS5 index
-    # This queries the most common terms across all indexed content
+    if not db_connections:
+        return jsonify({'words': [], 'error': 'No databases found'})
+
     try:
-        # Use a simple approach: get random sample of popular terms
-        # FTS5 doesn't have a built-in "most common words" query, so we'll
-        # extract from file names and content
-        cursor.execute('''
-            SELECT content FROM documents
-            WHERE content IS NOT NULL AND content != ''
-            AND LENGTH(content) > 20
-            ORDER BY RANDOM()
-            LIMIT 100
-        ''')
-
-        rows = cursor.fetchall()
-
-        # Count word frequencies
         from collections import Counter
         import re
 
@@ -296,22 +347,42 @@ def top_words():
                      'sheet', 'none', 'true', 'false', 'openpyxl', 'not', 'installed',
                      'error', 'reading'}
 
-        for row in rows:
-            content = row['content'].lower()
-            # Extract words (alphanumeric, 3+ chars)
-            words = re.findall(r'\b[a-z]{3,}\b', content)
-            for word in words:
-                if word not in stop_words:
-                    word_counts[word] += 1
+        # Sample from all databases
+        for db_path, conn in db_connections:
+            try:
+                cursor = conn.cursor()
+
+                # Get random sample of documents
+                cursor.execute('''
+                    SELECT content FROM documents
+                    WHERE content IS NOT NULL AND content != ''
+                    AND LENGTH(content) > 20
+                    ORDER BY RANDOM()
+                    LIMIT 50
+                ''')
+
+                rows = cursor.fetchall()
+
+                for row in rows:
+                    content = row['content'].lower()
+                    # Extract words (alphanumeric, 3+ chars)
+                    words = re.findall(r'\b[a-z]{3,}\b', content)
+                    for word in words:
+                        if word not in stop_words:
+                            word_counts[word] += 1
+
+                conn.close()
+            except Exception as e:
+                conn.close()
+                print(f"Error getting words from {db_path}: {e}")
+                continue
 
         # Get top 10
         top_10 = [{'word': word, 'count': count} for word, count in word_counts.most_common(10)]
 
-        conn.close()
         return jsonify({'words': top_10})
 
     except Exception as e:
-        conn.close()
         return jsonify({'words': [], 'error': str(e)})
 
 
@@ -322,13 +393,18 @@ def get_settings():
 
     config = get_all_config()
 
+    # Set default action if not already set
+    if 'default_action' not in config:
+        config['default_action'] = 'open'
+
     return jsonify({
         'current': config,
         'defaults': {
             'database_path': DEFAULT_DB,
             'server_host': DEFAULT_HOST,
             'server_port': DEFAULT_PORT,
-            'document_path': DEFAULT_DOC
+            'document_path': DEFAULT_DOC,
+            'default_action': 'open'
         }
     })
 
@@ -344,6 +420,12 @@ def update_settings():
             db_path = Path(new_settings['database_path'])
             if not db_path.exists():
                 return jsonify({'error': f'Database file not found: {new_settings["database_path"]}'}), 400
+
+        # Validate default_action if provided
+        if 'default_action' in new_settings:
+            valid_actions = ['open', 'copy', 'folder']
+            if new_settings['default_action'] not in valid_actions:
+                return jsonify({'error': f'Invalid default_action. Must be one of: {", ".join(valid_actions)}'}), 400
 
         # Save settings
         if save_user_config(new_settings):
@@ -365,20 +447,70 @@ def reset_settings():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/open/<int:doc_id>')
-def open_document(doc_id):
-    """Get document path for opening"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+@app.route('/api/file/open', methods=['POST'])
+def open_file():
+    """Open a file in its associated program"""
+    try:
+        data = request.json
+        file_path = data.get('file_path')
 
-    cursor.execute('SELECT file_path FROM documents WHERE id = ?', (doc_id,))
-    row = cursor.fetchone()
-    conn.close()
+        if not file_path:
+            return jsonify({'error': 'No file path provided'}), 400
 
-    if row:
-        return jsonify({'file_path': row['file_path']})
-    else:
-        return jsonify({'error': 'Document not found'}), 404
+        if not os.path.exists(file_path):
+            return jsonify({'error': 'File not found', 'path': file_path}), 404
+
+        # Open file in default program (platform-specific)
+        import subprocess
+        import platform
+
+        system = platform.system()
+        if system == 'Windows':
+            os.startfile(file_path)
+        elif system == 'Darwin':  # macOS
+            subprocess.run(['open', file_path])
+        else:  # Linux
+            subprocess.run(['xdg-open', file_path])
+
+        return jsonify({'success': True, 'message': f'Opened file: {Path(file_path).name}'})
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/file/open-folder', methods=['POST'])
+def open_folder():
+    """Open File Explorer to the folder containing the file"""
+    try:
+        data = request.json
+        file_path = data.get('file_path')
+
+        if not file_path:
+            return jsonify({'error': 'No file path provided'}), 400
+
+        if not os.path.exists(file_path):
+            return jsonify({'error': 'File not found', 'path': file_path}), 404
+
+        # Get folder path
+        folder_path = str(Path(file_path).parent)
+
+        # Open folder in File Explorer (platform-specific)
+        import subprocess
+        import platform
+
+        system = platform.system()
+        if system == 'Windows':
+            # Use explorer with /select to highlight the file
+            subprocess.run(['explorer', '/select,', file_path])
+        elif system == 'Darwin':  # macOS
+            subprocess.run(['open', '-R', file_path])
+        else:  # Linux
+            subprocess.run(['xdg-open', folder_path])
+
+        return jsonify({'success': True, 'message': f'Opened folder: {folder_path}'})
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 def open_browser():
@@ -387,10 +519,35 @@ def open_browser():
 
 
 if __name__ == '__main__':
-    if not os.path.exists(DATABASE_PATH):
-        print(f"ERROR: Database not found at {DATABASE_PATH}")
-        print("Please run indexer.py first to create and populate the database")
-        exit(1)
+    # Check if any databases exist
+    indexed_folders = get_all_indexed_folders()
+    db_paths = get_all_database_paths()
+
+    if not indexed_folders:
+        print("=" * 80)
+        print("WARNING: No indexed folders found!")
+        print("=" * 80)
+        print("Please run DocumentIndexer.exe first to:")
+        print("  1. Add folders to index")
+        print("  2. Index your documents")
+        print()
+        print("The search server will start, but no documents will be available")
+        print("until you index some folders.")
+        print("=" * 80)
+        print()
+    else:
+        print("=" * 80)
+        print("DOCUMENT SEARCH SERVER")
+        print("=" * 80)
+        print(f"Indexed folders: {len(indexed_folders)}")
+        for folder_info in indexed_folders:
+            db_exists = "✓" if folder_info['db_exists'] else "✗"
+            print(f"  {db_exists} {folder_info['folder_path']}")
+        print()
+        total_dbs = len([p for p in db_paths if os.path.exists(p)])
+        print(f"Active databases: {total_dbs}")
+        print("=" * 80)
+        print()
 
     print(f"Starting server on all network interfaces at port {SERVER_PORT}")
     print(f"Access locally at: http://127.0.0.1:{SERVER_PORT}")
