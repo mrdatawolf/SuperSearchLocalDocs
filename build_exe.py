@@ -33,6 +33,7 @@ PyInstaller.__main__.run([
     '--add-data=templates;templates',     # Include templates folder
     '--add-data=config.py;.',            # Include config
     '--add-data=config_manager.py;.',    # Include config manager
+    '--add-data=database_manager.py;.',  # Include database manager
     '--add-data=company_abbreviations.py;.',  # Include company abbreviations module
     '--add-data=END_USER_README.md;.',   # Include user documentation
     '--add-data=DISTRIBUTION_README.txt;.',  # Include distribution readme

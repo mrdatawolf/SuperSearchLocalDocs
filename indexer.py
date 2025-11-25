@@ -44,9 +44,16 @@ MAX_WORKERS = None  # None = auto-detect (75% of CPU cores)
 
 
 class DocumentIndexer:
-    def __init__(self):
-        self.db_path = DATABASE_PATH
-        self.document_path = DOCUMENT_PATH
+    def __init__(self, document_path=None, db_path=None):
+        """
+        Initialize the document indexer
+
+        Args:
+            document_path: Path to folder containing documents to index (uses config default if None)
+            db_path: Path to SQLite database file (uses config default if None)
+        """
+        self.db_path = db_path or DATABASE_PATH
+        self.document_path = document_path or DOCUMENT_PATH
         print(f"\n{'='*80}")
         print(f"INDEXER CONFIGURATION:")
         print(f"{'='*80}")
@@ -55,6 +62,10 @@ class DocumentIndexer:
         print(f"Database exists: {os.path.exists(self.db_path)}")
         print(f"Document path: {self.document_path}")
         print(f"{'='*80}\n")
+
+        # Ensure database directory exists
+        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+
         self.init_database()
 
     def init_database(self):

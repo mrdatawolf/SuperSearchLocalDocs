@@ -3,26 +3,36 @@ import sys
 from pathlib import Path
 
 # Detect if running as PyInstaller executable
-def _get_default_db_path():
-    """Get default database path - parent directory if running as exe, current dir otherwise"""
+def _get_databases_folder():
+    """Get databases folder path - parent/databases if running as exe, ./databases otherwise"""
     if getattr(sys, 'frozen', False):
         # Running as compiled executable
         # sys.executable points to DocumentIndexer.exe or DocumentSearch.exe
         # We want parent directory (e.g., C:\Program Files\SuperSearchDocs\)
         exe_dir = Path(sys.executable).parent
         parent_dir = exe_dir.parent
-        return str(parent_dir / "documents.sqlite3")
+        databases_folder = parent_dir / "databases"
     else:
-        # Running from source - use current directory
-        return "documents.sqlite3"
+        # Running from source - use databases subfolder in current directory
+        databases_folder = Path(__file__).parent / "databases"
 
-# Network share path where documents are located
+    # Create databases folder if it doesn't exist
+    databases_folder.mkdir(exist_ok=True)
+
+    return str(databases_folder)
+
+# Network share path where documents are located (default for backward compatibility)
 DOCUMENT_PATH = r"\\192.168.203.207\Shared Folders"
 
-# SQLite database file
-# When running as .exe, defaults to parent directory (shared between both apps)
-# When running from source, defaults to current directory
-DATABASE_PATH = _get_default_db_path()
+# SQLite database folder - all databases stored here
+# When running as .exe, uses parent/databases directory (shared between both apps)
+# When running from source, uses ./databases directory
+# Individual databases are managed by database_manager.py
+DATABASES_FOLDER = _get_databases_folder()
+
+# Legacy - kept for backward compatibility
+# New code should use database_manager.py instead
+DATABASE_PATH = str(Path(DATABASES_FOLDER) / "documents.sqlite3")
 
 # Supported file extensions
 SUPPORTED_EXTENSIONS = {

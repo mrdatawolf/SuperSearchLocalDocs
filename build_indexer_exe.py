@@ -32,6 +32,7 @@ PyInstaller.__main__.run([
     '--icon=NONE',                        # Add an icon later if desired
     '--add-data=config.py;.',            # Include config
     '--add-data=config_manager.py;.',    # Include config manager
+    '--add-data=database_manager.py;.',  # Include database manager
     '--add-data=indexer.py;.',           # Include indexer module
     '--add-data=company_abbreviations.py;.',  # Include abbreviations module
     '--add-data=END_USER_README.md;.',   # Include user documentation
