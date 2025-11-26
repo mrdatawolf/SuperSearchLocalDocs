@@ -330,55 +330,44 @@ def stats():
 
 @app.route('/api/top-words')
 def top_words():
-    """Get top 10 most common words from indexed content - across all databases"""
+    """Get top 10 most common words from pre-calculated word counts - across all databases"""
     db_connections = get_all_db_connections()
 
     if not db_connections:
         return jsonify({'words': [], 'error': 'No databases found'})
 
     try:
-        from collections import Counter
-        import re
+        # Aggregate word counts from all databases
+        aggregated_counts = {}
 
-        word_counts = Counter()
-        stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-                     'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'be', 'been',
-                     'this', 'that', 'these', 'those', 'it', 'its', 'can', 'will', 'would',
-                     'sheet', 'none', 'true', 'false', 'openpyxl', 'not', 'installed',
-                     'error', 'reading'}
-
-        # Sample from all databases
         for db_path, conn in db_connections:
             try:
                 cursor = conn.cursor()
 
-                # Get random sample of documents
+                # Query pre-calculated word counts
                 cursor.execute('''
-                    SELECT content FROM documents
-                    WHERE content IS NOT NULL AND content != ''
-                    AND LENGTH(content) > 20
-                    ORDER BY RANDOM()
-                    LIMIT 50
+                    SELECT word, count FROM word_counts
+                    ORDER BY count DESC
+                    LIMIT 200
                 ''')
 
                 rows = cursor.fetchall()
 
+                # Aggregate counts across databases
                 for row in rows:
-                    content = row['content'].lower()
-                    # Extract words (alphanumeric, 3+ chars)
-                    words = re.findall(r'\b[a-z]{3,}\b', content)
-                    for word in words:
-                        if word not in stop_words:
-                            word_counts[word] += 1
+                    word = row['word']
+                    count = row['count']
+                    aggregated_counts[word] = aggregated_counts.get(word, 0) + count
 
                 conn.close()
             except Exception as e:
                 conn.close()
-                print(f"Error getting words from {db_path}: {e}")
+                print(f"Error querying word_counts from {db_path}: {e}")
                 continue
 
-        # Get top 10
-        top_10 = [{'word': word, 'count': count} for word, count in word_counts.most_common(10)]
+        # Sort by count and get top 10
+        sorted_words = sorted(aggregated_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+        top_10 = [{'word': word, 'count': count} for word, count in sorted_words]
 
         return jsonify({'words': top_10})
 
@@ -466,14 +455,18 @@ def open_file():
 
         system = platform.system()
         if system == 'Windows':
-            os.startfile(file_path)
+            # Use subprocess with 'start' command for better UNC path support
+            # The empty string "" is needed as the window title argument
+            subprocess.run(['cmd', '/c', 'start', '', file_path], shell=False, check=True)
         elif system == 'Darwin':  # macOS
-            subprocess.run(['open', file_path])
+            subprocess.run(['open', file_path], check=True)
         else:  # Linux
-            subprocess.run(['xdg-open', file_path])
+            subprocess.run(['xdg-open', file_path], check=True)
 
         return jsonify({'success': True, 'message': f'Opened file: {Path(file_path).name}'})
 
+    except subprocess.CalledProcessError as e:
+        return jsonify({'error': f'Failed to open file: {str(e)}'}), 500
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -501,14 +494,16 @@ def open_folder():
         system = platform.system()
         if system == 'Windows':
             # Use explorer with /select to highlight the file
-            subprocess.run(['explorer', '/select,', file_path])
+            subprocess.run(['explorer', '/select,', file_path], check=True)
         elif system == 'Darwin':  # macOS
-            subprocess.run(['open', '-R', file_path])
+            subprocess.run(['open', '-R', file_path], check=True)
         else:  # Linux
-            subprocess.run(['xdg-open', folder_path])
+            subprocess.run(['xdg-open', folder_path], check=True)
 
         return jsonify({'success': True, 'message': f'Opened folder: {folder_path}'})
 
+    except subprocess.CalledProcessError as e:
+        return jsonify({'error': f'Failed to open folder: {str(e)}'}), 500
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

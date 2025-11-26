@@ -99,6 +99,19 @@ class DocumentIndexer:
             )
         ''')
 
+        # Create word_counts table for pre-calculated popular words
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS word_counts (
+                word TEXT PRIMARY KEY,
+                count INTEGER NOT NULL DEFAULT 1
+            )
+        ''')
+
+        # Create index on count for faster top-N queries
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_word_counts_count ON word_counts(count DESC)
+        ''')
+
         # Create triggers to keep FTS table in sync
         cursor.execute('''
             CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents BEGIN
@@ -126,6 +139,99 @@ class DocumentIndexer:
         conn.commit()
         conn.close()
         print(f"Database initialized at {self.db_path}")
+
+    def update_word_counts(self, content):
+        """Extract words from content and update word_counts table"""
+        if not content or len(content) < 20:
+            return
+
+        import re
+
+        # Stop words to exclude
+        stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+                     'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'be', 'been',
+                     'this', 'that', 'these', 'those', 'it', 'its', 'can', 'will', 'would',
+                     'sheet', 'none', 'true', 'false', 'openpyxl', 'not', 'installed',
+                     'error', 'reading', 'has', 'have', 'had', 'do', 'does', 'did', 'you',
+                     'your', 'we', 'our', 'they', 'their', 'he', 'she', 'his', 'her', 'if',
+                     'then', 'than', 'so', 'what', 'when', 'where', 'who', 'which', 'how',
+                     'all', 'any', 'both', 'each', 'few', 'more', 'most', 'other', 'some',
+                     'such', 'no', 'nor', 'only', 'own', 'same', 'than', 'too', 'very'}
+
+        # Extract words (3+ chars, letters only)
+        words = re.findall(r'\b[a-z]{3,}\b', content.lower())
+
+        # Count words (excluding stop words)
+        word_freq = {}
+        for word in words:
+            if word not in stop_words:
+                word_freq[word] = word_freq.get(word, 0) + 1
+
+        # Update database with word counts
+        if word_freq:
+            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            cursor = conn.cursor()
+
+            try:
+                for word, count in word_freq.items():
+                    # Insert or update word count
+                    cursor.execute('''
+                        INSERT INTO word_counts (word, count)
+                        VALUES (?, ?)
+                        ON CONFLICT(word) DO UPDATE SET count = count + ?
+                    ''', (word, count, count))
+
+                conn.commit()
+            except Exception as e:
+                print(f"Warning: Failed to update word counts: {e}")
+            finally:
+                conn.close()
+
+    def rebuild_word_counts(self):
+        """Rebuild word_counts table from all existing documents - useful for existing databases"""
+        print("\nRebuilding word counts from existing documents...")
+
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
+        cursor = conn.cursor()
+
+        try:
+            # Clear existing word counts
+            cursor.execute('DELETE FROM word_counts')
+            conn.commit()
+            print("Cleared existing word counts")
+
+            # Get total document count
+            cursor.execute('SELECT COUNT(*) FROM documents WHERE content IS NOT NULL AND LENGTH(content) > 20')
+            total_docs = cursor.fetchone()[0]
+            print(f"Processing {total_docs} documents...")
+
+            # Process documents in batches
+            batch_size = 100
+            for offset in range(0, total_docs, batch_size):
+                cursor.execute('''
+                    SELECT content FROM documents
+                    WHERE content IS NOT NULL AND LENGTH(content) > 20
+                    LIMIT ? OFFSET ?
+                ''', (batch_size, offset))
+
+                rows = cursor.fetchall()
+                print(f"Processing documents {offset + 1} to {min(offset + batch_size, total_docs)}...")
+
+                for row in rows:
+                    content = row[0]
+                    # Temporarily close connection for update_word_counts
+                    conn.close()
+                    self.update_word_counts(content)
+                    # Reopen connection for next batch
+                    conn = sqlite3.connect(self.db_path, timeout=30.0)
+                    cursor = conn.cursor()
+
+            print("✓ Word counts rebuilt successfully!")
+
+        except Exception as e:
+            print(f"Error rebuilding word counts: {e}")
+        finally:
+            conn.close()
 
     def extract_text_from_docx(self, file_path):
         """Extract text from DOCX files"""
@@ -224,6 +330,38 @@ class DocumentIndexer:
         except Exception as e:
             return f"[Error reading PowerShell script: {str(e)}]"
 
+    def extract_text_from_txt(self, file_path):
+        """Extract text from plain text files"""
+        try:
+            # Try UTF-8 first (most common)
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except UnicodeDecodeError:
+            try:
+                # Fallback to latin-1
+                with open(file_path, 'r', encoding='latin-1') as f:
+                    return f.read()
+            except Exception as e:
+                return f"[Error reading text file: {str(e)}]"
+        except Exception as e:
+            return f"[Error reading text file: {str(e)}]"
+
+    def extract_text_from_xls(self, file_path):
+        """Extract text from legacy Excel files (.xls)"""
+        if pd is None:
+            return "[pandas not installed]"
+
+        try:
+            # pandas can read .xls files using xlrd
+            df_dict = pd.read_excel(file_path, sheet_name=None, engine='xlrd')
+            text = []
+            for sheet_name, df in df_dict.items():
+                text.append(f"Sheet: {sheet_name}")
+                text.append(df.to_string())
+            return '\n'.join(text)
+        except Exception as e:
+            return f"[Error reading XLS: {str(e)}. Note: xlrd package may be required for .xls files]"
+
     def extract_text(self, file_path):
         """Extract text based on file extension"""
         ext = Path(file_path).suffix.lower()
@@ -234,8 +372,12 @@ class DocumentIndexer:
             return self.extract_text_from_csv(file_path)
         elif ext == '.xlsx':
             return self.extract_text_from_xlsx(file_path)
+        elif ext == '.xls':
+            return self.extract_text_from_xls(file_path)
         elif ext == '.pdf':
             return self.extract_text_from_pdf(file_path)
+        elif ext == '.txt':
+            return self.extract_text_from_txt(file_path)
         elif ext == '.ps1':
             return self.extract_text_from_ps1(file_path)
         elif ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.tif']:
@@ -278,8 +420,12 @@ class DocumentIndexer:
                 content = DocumentIndexer._static_extract_csv(file_path)
             elif ext == '.xlsx':
                 content = DocumentIndexer._static_extract_xlsx(file_path)
+            elif ext == '.xls':
+                content = DocumentIndexer._static_extract_xls(file_path)
             elif ext == '.pdf':
                 content = DocumentIndexer._static_extract_pdf(file_path)
+            elif ext == '.txt':
+                content = DocumentIndexer._static_extract_txt(file_path)
             elif ext == '.ps1':
                 content = DocumentIndexer._static_extract_ps1(file_path)
             elif ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.tif']:
@@ -401,6 +547,40 @@ class DocumentIndexer:
         except Exception as e:
             return f"[Error reading PowerShell script: {str(e)}]"
 
+    @staticmethod
+    def _static_extract_txt(file_path):
+        """Static version of text file extraction for worker processes"""
+        try:
+            # Try UTF-8 first (most common)
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except UnicodeDecodeError:
+            try:
+                # Fallback to latin-1
+                with open(file_path, 'r', encoding='latin-1') as f:
+                    return f.read()
+            except Exception as e:
+                return f"[Error reading text file: {str(e)}]"
+        except Exception as e:
+            return f"[Error reading text file: {str(e)}]"
+
+    @staticmethod
+    def _static_extract_xls(file_path):
+        """Static version of legacy Excel extraction for worker processes"""
+        if pd is None:
+            return "[pandas not installed]"
+
+        try:
+            # pandas can read .xls files using xlrd
+            df_dict = pd.read_excel(file_path, sheet_name=None, engine='xlrd')
+            text = []
+            for sheet_name, df in df_dict.items():
+                text.append(f"Sheet: {sheet_name}")
+                text.append(df.to_string())
+            return '\n'.join(text)
+        except Exception as e:
+            return f"[Error reading XLS: {str(e)}. Note: xlrd package may be required for .xls files]"
+
     def index_document(self, file_path):
         """Index a single document"""
         try:
@@ -456,6 +636,9 @@ class DocumentIndexer:
                     conn.commit()
                     conn.close()
 
+                    # Update word counts for this document's content
+                    self.update_word_counts(content)
+
                     return True, f"Indexed: {file_name}"
 
                 except sqlite3.OperationalError as e:
@@ -506,6 +689,10 @@ class DocumentIndexer:
 
             conn.commit()
             conn.close()
+
+            # Update word counts for this document's content
+            self.update_word_counts(content)
+
             return True, f"Indexed: {metadata['file_name']}"
 
         except Exception as e:

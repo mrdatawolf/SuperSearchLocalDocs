@@ -215,6 +215,13 @@ class IndexerGUI:
             width=20
         ).pack(side=tk.LEFT, padx=5)
 
+        ttk.Button(
+            button_frame,
+            text="🔨 Rebuild Word Counts",
+            command=self.rebuild_word_counts,
+            width=20
+        ).pack(side=tk.LEFT, padx=5)
+
         # Progress frame
         progress_frame = ttk.LabelFrame(self.root, text="Progress", padding="10")
         progress_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
@@ -675,6 +682,60 @@ class IndexerGUI:
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to read database:\n{str(e)}")
+
+    def rebuild_word_counts(self):
+        """Rebuild word counts for all databases"""
+        if not self.indexed_folders:
+            messagebox.showinfo("No Databases", "No folders have been indexed yet")
+            return
+
+        # Confirm action
+        result = messagebox.askyesno(
+            "Rebuild Word Counts",
+            f"This will rebuild word count statistics for all {len(self.indexed_folders)} database(s).\n\n"
+            "This is useful after upgrading to improve search performance.\n\n"
+            "Continue?"
+        )
+
+        if not result:
+            return
+
+        # Run in background thread
+        def rebuild_all():
+            try:
+                self.log_message("\n" + "=" * 80)
+                self.log_message("REBUILDING WORD COUNTS")
+                self.log_message("=" * 80)
+
+                for i, folder_info in enumerate(self.indexed_folders, 1):
+                    db_path = folder_info['db_path']
+                    folder_path = folder_info['folder_path']
+
+                    if not os.path.exists(db_path):
+                        self.log_message(f"\n[{i}/{len(self.indexed_folders)}] Skipping {folder_path} (not indexed yet)")
+                        continue
+
+                    self.log_message(f"\n[{i}/{len(self.indexed_folders)}] Processing: {folder_path}")
+                    self.log_message(f"Database: {db_path}")
+
+                    # Create indexer and rebuild word counts
+                    indexer = DocumentIndexer(document_path=folder_path, db_path=db_path)
+                    indexer.rebuild_word_counts()
+
+                self.log_message("\n" + "=" * 80)
+                self.log_message("✓ WORD COUNTS REBUILT FOR ALL DATABASES")
+                self.log_message("=" * 80 + "\n")
+
+                messagebox.showinfo("Success", "Word counts have been rebuilt for all databases!")
+
+            except Exception as e:
+                error_msg = f"Error rebuilding word counts:\n{str(e)}"
+                self.log_message(f"\n❌ {error_msg}")
+                messagebox.showerror("Error", error_msg)
+
+        thread = threading.Thread(target=rebuild_all)
+        thread.daemon = True
+        thread.start()
 
 
 def main():

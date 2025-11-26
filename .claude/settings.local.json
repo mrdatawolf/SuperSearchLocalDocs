@@ -4,7 +4,10 @@
       "Bash(if exist documents.db del documents.db)",
       "Bash(test:*)",
       "Bash(python:*)",
-      "Bash(del test_companies.py test_abbreviations.py)"
+      "Bash(del test_companies.py test_abbreviations.py)",
+      "Bash(dir \"C:\\Users\\patrick\\DocumentSearch\\databases\")",
+      "Bash(dir:*)",
+      "Bash(cmd /c \"dir \"\"\\192.168.203.207\\Shared Folders\\Retired\\NetDocOld\\2020\\Network doc\\Steve Morris.xlsx\"\"\")"
     ],
     "deny": [],
     "ask": []

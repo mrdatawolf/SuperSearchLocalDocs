@@ -958,11 +958,19 @@
                         </div>
                         <div class="checkbox-item">
                             <input type="checkbox" id="typeExcel" value="Excel Spreadsheet" checked>
-                            <label for="typeExcel">Excel</label>
+                            <label for="typeExcel">Excel (.xlsx)</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="typeExcelLegacy" value="Excel Spreadsheet (Legacy)" checked>
+                            <label for="typeExcelLegacy">Excel (.xls)</label>
                         </div>
                         <div class="checkbox-item">
                             <input type="checkbox" id="typeCSV" value="CSV File" checked>
                             <label for="typeCSV">CSV</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="typeText" value="Text File" checked>
+                            <label for="typeText">Text (.txt)</label>
                         </div>
                         <div class="checkbox-item">
                             <input type="checkbox" id="typeImage" value="Image" checked>
@@ -1030,7 +1038,9 @@
             'Word Document': '📄',
             'CSV File': '📊',
             'Excel Spreadsheet': '📊',
+            'Excel Spreadsheet (Legacy)': '📊',
             'PDF Document': '📕',
+            'Text File': '📝',
             'JPEG Image': '🖼️',
             'PNG Image': '🖼️',
             'GIF Image': '🖼️',
@@ -1241,6 +1251,8 @@
         async function openFile(filePath, event) {
             if (event) event.stopPropagation();
 
+            console.log('openFile called with:', filePath);
+
             try {
                 const response = await fetch('/api/file/open', {
                     method: 'POST',
@@ -1250,13 +1262,18 @@
                     body: JSON.stringify({ file_path: filePath })
                 });
 
+                console.log('Response status:', response.status);
                 const data = await response.json();
+                console.log('Response data:', data);
 
                 if (!response.ok) {
                     alert('Error opening file: ' + (data.error || 'Unknown error'));
+                } else {
+                    console.log('File opened successfully');
+                    showToast('✓ File opened');
                 }
-                // Success - file opened, no alert needed
             } catch (error) {
+                console.error('Error in openFile:', error);
                 alert('Network error: ' + error.message);
             }
         }
@@ -1280,6 +1297,8 @@
         async function openFolderLocation(filePath, event) {
             if (event) event.stopPropagation();
 
+            console.log('openFolderLocation called with:', filePath);
+
             try {
                 const response = await fetch('/api/file/open-folder', {
                     method: 'POST',
@@ -1289,13 +1308,18 @@
                     body: JSON.stringify({ file_path: filePath })
                 });
 
+                console.log('Response status:', response.status);
                 const data = await response.json();
+                console.log('Response data:', data);
 
                 if (!response.ok) {
                     alert('Error opening folder: ' + (data.error || 'Unknown error'));
+                } else {
+                    console.log('Folder opened successfully');
+                    showToast('✓ Folder opened');
                 }
-                // Success - folder opened, no alert needed
             } catch (error) {
+                console.error('Error in openFolderLocation:', error);
                 alert('Network error: ' + error.message);
             }
         }
