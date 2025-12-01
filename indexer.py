@@ -156,7 +156,7 @@ class DocumentIndexer:
                      'your', 'we', 'our', 'they', 'their', 'he', 'she', 'his', 'her', 'if',
                      'then', 'than', 'so', 'what', 'when', 'where', 'who', 'which', 'how',
                      'all', 'any', 'both', 'each', 'few', 'more', 'most', 'other', 'some',
-                     'such', 'no', 'nor', 'only', 'own', 'same', 'than', 'too', 'very'}
+                     'such', 'no', 'nor', 'only', 'own', 'same', 'than', 'too', 'very', 'nan'}
 
         # Extract words (3+ chars, letters only)
         words = re.findall(r'\b[a-z]{3,}\b', content.lower())
@@ -189,47 +189,85 @@ class DocumentIndexer:
 
     def rebuild_word_counts(self):
         """Rebuild word_counts table from all existing documents - useful for existing databases"""
+        import re
+
         print("\nRebuilding word counts from existing documents...")
+
+        # Stop words to exclude
+        stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+                     'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'be', 'been',
+                     'this', 'that', 'these', 'those', 'it', 'its', 'can', 'will', 'would',
+                     'sheet', 'none', 'true', 'false', 'openpyxl', 'not', 'installed',
+                     'error', 'reading', 'has', 'have', 'had', 'do', 'does', 'did', 'you',
+                     'your', 'we', 'our', 'they', 'their', 'he', 'she', 'his', 'her', 'if',
+                     'then', 'than', 'so', 'what', 'when', 'where', 'who', 'which', 'how',
+                     'all', 'any', 'both', 'each', 'few', 'more', 'most', 'other', 'some',
+                     'such', 'no', 'nor', 'only', 'own', 'same', 'than', 'too', 'very', 'nan'}
 
         conn = sqlite3.connect(self.db_path, timeout=30.0)
         cursor = conn.cursor()
 
         try:
-            # Clear existing word counts
-            cursor.execute('DELETE FROM word_counts')
-            conn.commit()
-            print("Cleared existing word counts")
-
             # Get total document count
             cursor.execute('SELECT COUNT(*) FROM documents WHERE content IS NOT NULL AND LENGTH(content) > 20')
             total_docs = cursor.fetchone()[0]
             print(f"Processing {total_docs} documents...")
 
-            # Process documents in batches
-            batch_size = 100
-            for offset in range(0, total_docs, batch_size):
+            # Build word counts in memory
+            all_word_counts = {}
+
+            # Process documents in batches using ROWID cursor (much faster than OFFSET)
+            batch_size = 1000  # Increased batch size for better performance
+            last_rowid = 0
+            processed = 0
+
+            while True:
                 cursor.execute('''
-                    SELECT content FROM documents
-                    WHERE content IS NOT NULL AND LENGTH(content) > 20
-                    LIMIT ? OFFSET ?
-                ''', (batch_size, offset))
+                    SELECT rowid, content FROM documents
+                    WHERE rowid > ?
+                      AND content IS NOT NULL
+                      AND LENGTH(content) > 20
+                    ORDER BY rowid
+                    LIMIT ?
+                ''', (last_rowid, batch_size))
 
                 rows = cursor.fetchall()
-                print(f"Processing documents {offset + 1} to {min(offset + batch_size, total_docs)}...")
+                if not rows:
+                    break
 
-                for row in rows:
-                    content = row[0]
-                    # Temporarily close connection for update_word_counts
-                    conn.close()
-                    self.update_word_counts(content)
-                    # Reopen connection for next batch
-                    conn = sqlite3.connect(self.db_path, timeout=30.0)
-                    cursor = conn.cursor()
+                processed += len(rows)
+                print(f"Processing documents {processed - len(rows) + 1} to {processed}...")
 
-            print("✓ Word counts rebuilt successfully!")
+                for rowid, content in rows:
+                    # Extract words (3+ chars, letters only)
+                    words = re.findall(r'\b[a-z]{3,}\b', content.lower())
+
+                    # Count words (excluding stop words)
+                    for word in words:
+                        if word not in stop_words:
+                            all_word_counts[word] = all_word_counts.get(word, 0) + 1
+
+                    last_rowid = rowid
+
+            print(f"Found {len(all_word_counts)} unique words")
+            print("Clearing old word counts and inserting new data...")
+
+            # Clear existing word counts and insert new ones in a single transaction
+            cursor.execute('DELETE FROM word_counts')
+
+            # Insert all word counts
+            for word, count in all_word_counts.items():
+                cursor.execute('''
+                    INSERT INTO word_counts (word, count)
+                    VALUES (?, ?)
+                ''', (word, count))
+
+            conn.commit()
+            print("[OK] Word counts rebuilt successfully!")
 
         except Exception as e:
             print(f"Error rebuilding word counts: {e}")
+            conn.rollback()
         finally:
             conn.close()
 

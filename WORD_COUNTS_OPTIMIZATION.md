@@ -63,6 +63,7 @@ Word counts are automatically calculated during indexing. No action needed.
 2. Click "🔨 Rebuild Word Counts" button
 3. Confirm the action
 4. Wait for completion (progress shown in log)
+5. **Optional:** Click "🗜️ Vacuum Databases" to reclaim disk space (recommended after rebuild)
 
 ## Performance Impact
 
@@ -80,6 +81,14 @@ Word counts are automatically calculated during indexing. No action needed.
 - Typical word_counts table size: 50-200 KB per database
 - Negligible compared to document content storage
 
+### Database Compaction
+After rebuilding word counts (which removes billions of "nan" entries), use the vacuum feature:
+- **GUI:** Click "🗜️ Vacuum Databases" button in DocumentIndexer
+- **CLI:** Run `python vacuum_databases.py`
+- **Benefit:** Reclaims disk space from deleted entries and defragments database
+- **Impact:** Can save significant space (especially after removing "nan" entries)
+- **Recommendation:** Always vacuum after rebuilding word counts
+
 ## Technical Details
 
 ### Stop Words
@@ -90,8 +99,10 @@ as, is, was, are, be, been, this, that, these, those, it, its, can,
 will, would, sheet, none, true, false, has, have, had, do, does,
 did, you, your, we, our, they, their, he, she, his, her, if, then,
 than, so, what, when, where, who, which, how, all, any, both, each,
-few, more, most, other, some, such, no, nor, only, own, same, too, very
+few, more, most, other, some, such, no, nor, only, own, same, too, very, nan
 ```
+
+**Note:** "nan" (Not a Number) is blocked to prevent data artifacts from spreadsheets appearing in popular words.
 
 ### Word Extraction
 - Regex pattern: `\b[a-z]{3,}\b`

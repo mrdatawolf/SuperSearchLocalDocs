@@ -21,6 +21,8 @@ from database_manager import (
     add_indexed_folder, remove_indexed_folder,
     get_all_indexed_folders, get_database_path
 )
+from config_manager import load_user_config, save_user_config
+from config import SERVER_HOST, SERVER_PORT
 
 
 def index_folder_worker(folder_path, db_path, use_parallel):
@@ -97,6 +99,53 @@ class IndexerGUI:
             font=('Arial', 10)
         )
         subtitle_label.pack()
+
+        # Server Configuration Frame
+        server_frame = ttk.LabelFrame(self.root, text="Server Configuration", padding="15")
+        server_frame.pack(fill=tk.X, padx=10, pady=(10, 0))
+
+        # Load current server host from config
+        user_config = load_user_config()
+        current_server_host = user_config.get('server_host', SERVER_HOST)
+
+        server_grid = ttk.Frame(server_frame)
+        server_grid.pack(fill=tk.X)
+
+        ttk.Label(
+            server_grid,
+            text="Server IP Address:",
+            font=('Arial', 10)
+        ).grid(row=0, column=0, sticky=tk.W, padx=(0, 10), pady=5)
+
+        self.server_host_var = tk.StringVar(value=current_server_host)
+        server_host_entry = ttk.Entry(
+            server_grid,
+            textvariable=self.server_host_var,
+            width=25,
+            font=('Arial', 10)
+        )
+        server_host_entry.grid(row=0, column=1, sticky=tk.W, pady=5)
+
+        ttk.Label(
+            server_grid,
+            text=f"  Port: {SERVER_PORT}",
+            font=('Arial', 10),
+            foreground='gray'
+        ).grid(row=0, column=2, sticky=tk.W, padx=(10, 0), pady=5)
+
+        ttk.Button(
+            server_grid,
+            text="💾 Save Server Config",
+            command=self.save_server_config,
+            width=20
+        ).grid(row=0, column=3, sticky=tk.W, padx=(20, 0), pady=5)
+
+        ttk.Label(
+            server_frame,
+            text="This IP will be used for network access. Use 192.168.x.x for your network card IP. Restart apps after changing.",
+            font=('Arial', 9),
+            foreground='gray'
+        ).pack(pady=(5, 0))
 
         # Indexed Folders Frame
         folders_frame = ttk.LabelFrame(self.root, text="Indexed Folders", padding="15")
@@ -222,6 +271,13 @@ class IndexerGUI:
             width=20
         ).pack(side=tk.LEFT, padx=5)
 
+        ttk.Button(
+            button_frame,
+            text="🗜️ Vacuum Databases",
+            command=self.vacuum_databases,
+            width=20
+        ).pack(side=tk.LEFT, padx=5)
+
         # Progress frame
         progress_frame = ttk.LabelFrame(self.root, text="Progress", padding="10")
         progress_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
@@ -256,6 +312,55 @@ class IndexerGUI:
             padding="5"
         )
         status_bar.pack(fill=tk.X, side=tk.BOTTOM)
+
+    def save_server_config(self):
+        """Save server host configuration to user config"""
+        server_host = self.server_host_var.get().strip()
+
+        if not server_host:
+            messagebox.showerror("Invalid Input", "Server IP address cannot be empty")
+            return
+
+        # Basic IP validation
+        parts = server_host.split('.')
+        if len(parts) != 4:
+            messagebox.showerror(
+                "Invalid IP Address",
+                "Please enter a valid IPv4 address (e.g., 192.168.1.100)"
+            )
+            return
+
+        try:
+            for part in parts:
+                num = int(part)
+                if num < 0 or num > 255:
+                    raise ValueError()
+        except ValueError:
+            messagebox.showerror(
+                "Invalid IP Address",
+                "Please enter a valid IPv4 address (e.g., 192.168.1.100)"
+            )
+            return
+
+        # Load current config
+        user_config = load_user_config()
+
+        # Update server_host
+        user_config['server_host'] = server_host
+
+        # Save config
+        if save_user_config(user_config):
+            self.log_message(f"✓ Server configuration saved: {server_host}:{SERVER_PORT}")
+            self.log_message("  Restart DocumentSearch.exe or DocumentSearchGUI.exe for changes to take effect\n")
+            messagebox.showinfo(
+                "Configuration Saved",
+                f"Server configuration saved successfully!\n\n"
+                f"Server will be accessible at:\n"
+                f"  http://{server_host}:{SERVER_PORT}\n\n"
+                f"Please restart the search server applications for changes to take effect."
+            )
+        else:
+            messagebox.showerror("Error", "Failed to save server configuration")
 
     def load_indexed_folders(self):
         """Load indexed folders from database manager"""
@@ -734,6 +839,128 @@ class IndexerGUI:
                 messagebox.showerror("Error", error_msg)
 
         thread = threading.Thread(target=rebuild_all)
+        thread.daemon = True
+        thread.start()
+
+    def vacuum_databases(self):
+        """Vacuum all databases to reclaim disk space"""
+        if not self.indexed_folders:
+            messagebox.showinfo("No Databases", "No folders have been indexed yet")
+            return
+
+        # Confirm action
+        result = messagebox.askyesno(
+            "Vacuum Databases",
+            f"This will compact all {len(self.indexed_folders)} database(s) to reclaim disk space.\n\n"
+            "Run this AFTER rebuilding word counts to get the most benefit.\n\n"
+            "This may take a few minutes depending on database size.\n\n"
+            "Continue?"
+        )
+
+        if not result:
+            return
+
+        # Run in background thread
+        def vacuum_all():
+            try:
+                self.log_message("\n" + "=" * 80)
+                self.log_message("DATABASE VACUUM UTILITY")
+                self.log_message("=" * 80)
+                self.log_message("\nThis will compact all database files to reclaim disk space.")
+                self.log_message("Run this AFTER rebuilding word counts to get the most benefit.\n")
+
+                total_space_before = 0
+                total_space_after = 0
+                successful_vacuums = 0
+
+                for i, folder_info in enumerate(self.indexed_folders, 1):
+                    db_path = folder_info['db_path']
+                    folder_path = folder_info['folder_path']
+
+                    if not os.path.exists(db_path):
+                        self.log_message(f"\n[{i}/{len(self.indexed_folders)}] Skipping {folder_path} (database not found)")
+                        continue
+
+                    db_name = os.path.basename(db_path)
+
+                    # Get size before
+                    size_before = os.path.getsize(db_path)
+                    size_before_mb = size_before / (1024 * 1024)
+                    total_space_before += size_before
+
+                    self.log_message(f"\n[{i}/{len(self.indexed_folders)}] Processing: {db_name}")
+                    self.log_message(f"  Size before: {size_before_mb:.2f} MB")
+
+                    try:
+                        # Connect and vacuum
+                        conn = sqlite3.connect(db_path)
+                        self.log_message("  Vacuuming... ")
+
+                        # Disable WAL mode if enabled (WAL prevents VACUUM from shrinking the main db file)
+                        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                        conn.execute("PRAGMA journal_mode=DELETE")
+                        conn.commit()
+
+                        # Execute VACUUM
+                        conn.execute("VACUUM")
+                        conn.commit()
+
+                        # Switch back to WAL mode for better performance
+                        conn.execute("PRAGMA journal_mode=WAL")
+                        conn.commit()
+                        conn.close()
+
+                        # Force file system to update (Windows caching issue)
+                        import time
+                        time.sleep(0.2)
+
+                        self.log_message("  Done!")
+
+                        # Get size after
+                        size_after = os.path.getsize(db_path)
+                        size_after_mb = size_after / (1024 * 1024)
+                        total_space_after += size_after
+
+                        saved = size_before - size_after
+                        saved_mb = saved / (1024 * 1024)
+                        percent_saved = (saved / size_before * 100) if size_before > 0 else 0
+
+                        self.log_message(f"  Size after:  {size_after_mb:.2f} MB")
+                        self.log_message(f"  Space saved: {saved_mb:.2f} MB ({percent_saved:.1f}%)")
+
+                        successful_vacuums += 1
+
+                    except Exception as e:
+                        self.log_message(f"  ERROR: {e}")
+
+                # Summary
+                self.log_message("\n" + "=" * 80)
+                self.log_message("SUMMARY")
+                self.log_message("=" * 80)
+
+                total_before_mb = total_space_before / (1024 * 1024)
+                total_after_mb = total_space_after / (1024 * 1024)
+                total_saved_mb = (total_space_before - total_space_after) / (1024 * 1024)
+                total_percent = ((total_space_before - total_space_after) / total_space_before * 100) if total_space_before > 0 else 0
+
+                self.log_message(f"Total size before: {total_before_mb:.2f} MB")
+                self.log_message(f"Total size after:  {total_after_mb:.2f} MB")
+                self.log_message(f"Total space saved: {total_saved_mb:.2f} MB ({total_percent:.1f}%)")
+                self.log_message(f"\n✓ Vacuum complete! Successfully compacted {successful_vacuums} of {len(self.indexed_folders)} database(s)\n")
+
+                messagebox.showinfo(
+                    "Success",
+                    f"Vacuum complete!\n\n"
+                    f"Databases compacted: {successful_vacuums}/{len(self.indexed_folders)}\n"
+                    f"Space saved: {total_saved_mb:.2f} MB ({total_percent:.1f}%)"
+                )
+
+            except Exception as e:
+                error_msg = f"Error during vacuum:\n{str(e)}"
+                self.log_message(f"\n❌ {error_msg}")
+                messagebox.showerror("Error", error_msg)
+
+        thread = threading.Thread(target=vacuum_all)
         thread.daemon = True
         thread.start()
 

@@ -22,7 +22,7 @@ def _get_databases_folder():
     return str(databases_folder)
 
 # Network share path where documents are located (default for backward compatibility)
-DOCUMENT_PATH = r"\\192.168.203.207\Shared Folders"
+DOCUMENT_PATH = r"\\192.168.0.1\Shared Folders"
 
 # SQLite database folder - all databases stored here
 # When running as .exe, uses parent/databases directory (shared between both apps)
@@ -53,5 +53,5 @@ SUPPORTED_EXTENSIONS = {
 }
 
 # Server configuration
-SERVER_HOST = "192.168.203.29"
+SERVER_HOST = "192.168.203.241"
 SERVER_PORT = 9000

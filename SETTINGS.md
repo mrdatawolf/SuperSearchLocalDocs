@@ -14,7 +14,7 @@ Click the **⚙️ Settings** button in the top-right corner of the web interfac
 **Use Case**: Multiple users can point to a shared database on a network drive.
 
 **Example**:
-- Network path: `\\192.168.203.207\Shared Folders\Databases\documents.sqlite3`
+- Network path: `\\192.168.0.1\Shared Folders\Databases\documents.sqlite3`
 - Local path: `C:\Data\documents.sqlite3`
 
 ### Document Path
@@ -23,7 +23,7 @@ Click the **⚙️ Settings** button in the top-right corner of the web interfac
 **Note**: This setting is used by `indexer.py`, not by the search server.
 
 **Example**:
-- Network share: `\\192.168.203.207\Shared Folders`
+- Network share: `\\192.168.0.1\Shared Folders`
 - Local folder: `C:\Users\Public\Documents`
 
 ## How It Works
@@ -38,8 +38,8 @@ User settings are saved to `user_config.json` in the application directory. This
 **Example `user_config.json`**:
 ```json
 {
-    "database_path": "\\\\192.168.203.207\\Shared Folders\\Databases\\documents.sqlite3",
-    "document_path": "\\\\192.168.203.207\\Shared Folders"
+    "database_path": "\\\\192.168.0.1\\Databases\\documents.sqlite3",
+    "document_path": "\\\\192.168.0.1\\Shared Folders"
 }
 ```
 
@@ -54,13 +54,13 @@ After saving settings:
 To share a database across multiple computers:
 
 1. **Place database on network share**:
-   - Create folder: `\\192.168.203.207\Shared Folders\Databases\`
+   - Create folder: `\\192.168.0.1\Shared Folders\Databases\`
    - Copy `documents.sqlite3` to this location
 
 2. **Configure each computer**:
    - Open Document Search in browser
    - Click **⚙️ Settings**
-   - Set Database Path to: `\\192.168.203.207\Shared Folders\Databases\documents.sqlite3`
+   - Set Database Path to: `\\192.168.0.1\Shared Folders\Databases\documents.sqlite3`
    - Click **Save Changes**
    - Refresh the page
 

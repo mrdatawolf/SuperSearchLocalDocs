@@ -5,6 +5,7 @@ import sqlite3
 import os
 import webbrowser
 import threading
+import argparse
 from pathlib import Path
 from config import DATABASE_PATH, SERVER_HOST, SERVER_PORT, DOCUMENT_PATH
 from config_manager import get_all_config, save_user_config, reset_to_defaults
@@ -493,8 +494,17 @@ def open_folder():
 
         system = platform.system()
         if system == 'Windows':
-            # Use explorer with /select to highlight the file
-            subprocess.run(['explorer', '/select,', file_path], check=True)
+            # Check if it's a UNC path (network share)
+            is_unc = file_path.startswith('\\\\') or file_path.startswith('//')
+
+            if is_unc:
+                # For UNC paths, /select doesn't work reliably, so just open the folder
+                # Use cmd /c to handle UNC paths properly
+                subprocess.run(['cmd', '/c', 'start', '', folder_path], shell=False)
+            else:
+                # For local paths, use /select to highlight the file
+                subprocess.run(['explorer', '/select,', file_path])
+
         elif system == 'Darwin':  # macOS
             subprocess.run(['open', '-R', file_path], check=True)
         else:  # Linux
@@ -514,6 +524,11 @@ def open_browser():
 
 
 if __name__ == '__main__':
+    # Load server configuration (check user config first)
+    from config_manager import load_user_config
+    user_config = load_user_config()
+    actual_server_host = user_config.get('server_host', SERVER_HOST)
+
     # Check if any databases exist
     indexed_folders = get_all_indexed_folders()
     db_paths = get_all_database_paths()
@@ -546,12 +561,21 @@ if __name__ == '__main__':
 
     print(f"Starting server on all network interfaces at port {SERVER_PORT}")
     print(f"Access locally at: http://127.0.0.1:{SERVER_PORT}")
-    print(f"Access from network at: http://{SERVER_HOST}:{SERVER_PORT}")
+    print(f"Access from network at: http://{actual_server_host}:{SERVER_PORT}")
     print("Press Ctrl+C to stop")
     print()
-    print("Opening web browser...")
 
-    # Open browser after a short delay to ensure server is ready
-    threading.Timer(1.5, open_browser).start()
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Document Search Server')
+    parser.add_argument('--no-browser', action='store_true',
+                       help='Do not automatically open web browser')
+    args = parser.parse_args()
 
-    app.run(host='0.0.0.0', port=SERVER_PORT, debug=True)
+    # Only open browser if not disabled
+    if not args.no_browser:
+        print("Opening web browser...")
+        threading.Timer(1.5, open_browser).start()
+    else:
+        print("Browser auto-open disabled (use --no-browser flag to disable)")
+
+    app.run(host='0.0.0.0', port=SERVER_PORT, debug=False)

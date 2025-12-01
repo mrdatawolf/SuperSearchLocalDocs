@@ -4,21 +4,26 @@ A powerful full-text search system for local document collections. Search across
 
 ## 🚀 Standalone Applications - No Python Required!
 
-SuperSearch Local Docs is distributed as **two standalone Windows applications**:
+SuperSearch Local Docs is distributed as **three standalone Windows applications**:
 
 - **DocumentIndexer.exe** - GUI for setup, configuration, and indexing documents
-- **DocumentSearch.exe** - Web server for searching your indexed documents
+- **DocumentSearchGUI.exe** - Desktop application for searching (recommended)
+- **DocumentSearch.exe** - Web server for searching (browser-based)
 
-Both applications work together and require **no Python installation** on end-user computers!
+All applications work together and require **no Python installation** on end-user computers!
 
 **📖 See [BUILD_INSTRUCTIONS.md](BUILD_INSTRUCTIONS.md) to build the executables**
 **📖 See [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) for deployment instructions**
 
 ### Quick Start for End Users
 
-1. **Run DocumentIndexer.exe** → Configure paths and index your documents
-2. **Run DocumentSearch.exe** → Search your indexed documents via web browser
+1. **Run DocumentIndexer.exe** → Configure server IP and index your documents
+2. **Run DocumentSearchGUI.exe** → Search your documents in a desktop app
 3. **Done!** No Python, no dependencies, no complicated setup.
+
+**Alternative:** Run `DocumentSearch.exe` to use the browser-based interface instead.
+
+**Network Access:** Configure your server IP address in DocumentIndexer.exe to allow access from other computers on your network.
 
 ### For Developers
 
@@ -52,12 +57,17 @@ If you want to run from source or customize the code, see the [Installation](#in
 - **Support for multiple formats**:
   - Word Documents (.docx)
   - PDF Documents (.pdf)
-  - Excel Spreadsheets (.xlsx)
+  - Excel Spreadsheets (.xlsx, .xls)
   - CSV Files (.csv)
+  - Text Files (.txt)
+  - PowerShell Scripts (.ps1)
   - Images (.jpg, .png, .gif, .bmp, .tiff) with OCR
-- **Network share support** - index documents from network locations
+- **Network share support** - index documents from network locations (including UNC paths)
 - **Smart snippet preview** - see matching text highlighted in results
+- **File action buttons** - open file, open folder, or copy path directly from search results
+- **Configurable default action** - click search results to perform your preferred action (open/copy/folder)
 - **Simple update** - re-run indexer whenever you need to refresh
+- **Pre-calculated word counts** - popular words load instantly (<100ms)
 
 ## Installation
 
@@ -186,8 +196,10 @@ The server now binds to all network interfaces, making it accessible from other 
 2. Enter your search query (searches file names, folder names, and content)
 3. **Optional:** Click "Filters & Options" to refine your search
 4. View results with highlighted snippets
-5. Click any result to copy the file path to clipboard
-6. Paste into Windows Explorer to open the document
+5. **Interact with results:**
+   - Click the result to perform your default action (configurable in Settings)
+   - Use action buttons: **📂 Open File**, **📋 Copy Path**, or **📁 Open Folder**
+   - Toast notifications confirm each action
 
 **Search Examples:**
 - Search "invoice" - finds files named invoice.pdf, folders called "Invoices", or text containing "invoice"
@@ -205,6 +217,70 @@ The left sidebar displays the 10 most common words found in your indexed documen
 - Hidden on smaller screens (< 1024px)
 
 This feature helps you discover frequently used terms and speeds up common searches!
+
+## API Integration
+
+SuperSearch Local Docs provides a complete REST API that allows you to integrate document search into your own applications and web pages.
+
+### API Integration Example
+
+A ready-to-use example is included: **[api_integration_example.html](api_integration_example.html)**
+
+This standalone HTML file demonstrates:
+- ✅ Search documents with live results
+- ✅ Display database statistics
+- ✅ Show popular words
+- ✅ Open files and folders programmatically
+- ✅ Copy file paths to clipboard
+- ✅ Complete API documentation with examples
+
+**Quick Start:**
+1. Open `api_integration_example.html` in any web browser
+2. Update the `API_BASE_URL` constant to match your server
+3. Test the live search and API calls
+4. Copy the code snippets into your own projects
+
+### Available API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/search` | POST | Search documents with filters and pagination |
+| `/api/stats` | GET | Get database statistics (total docs, databases, last update) |
+| `/api/top-words` | GET | Get the top 10 most common words across all documents |
+| `/api/file/open` | POST | Open a file in its default application |
+| `/api/file/open-folder` | POST | Open the folder containing a file |
+| `/api/settings` | GET/POST | Get or update application settings |
+
+**Example Search Request:**
+```json
+POST /api/search
+{
+  "query": "invoice",
+  "page": 1,
+  "per_page": 20,
+  "file_types": ["Word Document", "PDF Document", "Excel Spreadsheet"]
+}
+```
+
+**Example Response:**
+```json
+{
+  "results": [
+    {
+      "file_name": "Invoice_2024.pdf",
+      "file_path": "C:\\Documents\\Invoices\\Invoice_2024.pdf",
+      "file_type": "PDF Document",
+      "file_size": 245760,
+      "modified_date": "2024-01-15T10:30:00",
+      "snippet": "...invoice for services rendered in January 2024..."
+    }
+  ],
+  "total": 42,
+  "page": 1,
+  "total_pages": 3,
+  "per_page": 20
+}
+```
 
 ### Abbreviation Expansion
 
@@ -255,6 +331,12 @@ Change where the application looks for the indexed documents database. Perfect f
 ### Document Path
 Set the root folder to scan when running the indexer.
 
+### Default Click Action
+Choose what happens when you click on a search result:
+- **Open file** - Opens the file in its associated program (default)
+- **Copy path** - Copies the file path to clipboard
+- **Open folder** - Opens the folder containing the file
+
 **After changing settings:**
 1. Click "Save Changes"
 2. Refresh your browser page
@@ -295,22 +377,30 @@ Click **"Filters & Options"** to access powerful filtering:
 SuperSearchLocalDocs/
 ├── config.py                      # Configuration settings
 ├── config_manager.py              # User configuration manager
+├── database_manager.py            # Multi-database management
 ├── indexer.py                     # Command-line document indexer
 ├── indexer_gui.py                 # GUI document indexer (recommended)
 ├── server.py                      # Flask web server
+├── search_gui.py                  # Desktop search application
 ├── company_abbreviations.py       # Abbreviation expansion system
 ├── build_exe.py                   # Build script for search server
 ├── build_indexer_exe.py           # Build script for GUI indexer
+├── build_search_gui_exe.py        # Build script for search GUI
+├── build_all.py                   # Build all executables
 ├── start_server.bat               # Windows batch file to start server
 ├── requirements.txt               # Python dependencies
 ├── user_config.json               # User settings (created after configuration)
-├── documents.sqlite3              # SQLite3 database (created after indexing)
+├── vacuum_databases.py            # Database compaction utility
+├── api_integration_example.html   # API integration example page
 ├── alternate_names.csv            # Abbreviation mappings (optional)
 ├── alternate_names_example.csv    # Example abbreviation file
 ├── templates/
 │   └── index.html                # Web search interface
+├── databases/                     # Database files (created after indexing)
+│   └── *.sqlite3                 # One database per indexed folder
 ├── BUILD_INSTRUCTIONS.md          # Executable build documentation
 ├── SETTINGS.md                    # Configuration documentation
+├── WORD_COUNTS_OPTIMIZATION.md    # Word counts feature documentation
 └── README.md
 ```
 
@@ -334,6 +424,58 @@ The indexer will:
 - Add new documents
 - Keep the database in sync with your document folder
 
+## Performance Optimization
+
+### Word Counts & Popular Words
+
+The "Popular Words" feature uses pre-calculated word counts for instant performance (<100ms instead of 15+ seconds):
+
+- Word frequencies are calculated during indexing
+- Stored in a dedicated `word_counts` table with indexed queries
+- Common stop words (including "nan" from spreadsheets) are automatically filtered
+
+**For existing databases** that were indexed before this optimization:
+1. Open `DocumentIndexer.exe`
+2. Click **"🔨 Rebuild Word Counts"** button
+3. Wait for completion (rebuilds word statistics from existing documents)
+
+### Database Compaction
+
+After rebuilding word counts, you can reclaim disk space by vacuuming the databases.
+
+**Option 1 - Using GUI (Recommended):**
+1. Open `DocumentIndexer.exe`
+2. Click **"🗜️ Vacuum Databases"** button
+3. Confirm and wait for completion
+4. View space savings in the summary
+
+**Option 2 - Using Command Line:**
+```bash
+python vacuum_databases.py
+```
+
+This runs SQLite's VACUUM command on all databases to:
+- Remove deleted/fragmented data
+- Reclaim disk space (especially after removing "nan" entries)
+- Improve query performance
+- Reports size before/after and space saved
+
+**📖 See [WORD_COUNTS_OPTIMIZATION.md](WORD_COUNTS_OPTIMIZATION.md) for technical details.**
+
+## Multi-Database Support
+
+SuperSearch now supports indexing multiple folders, each with its own database:
+
+- **Each indexed folder** gets a unique database file (MD5-hashed filename)
+- **Search across all databases** simultaneously
+- **Statistics aggregated** from all indexed folders
+- **Popular words combined** across all documents
+
+This allows you to:
+- Index multiple network shares or local folders
+- Keep databases separate for easier management
+- Search everything from a single interface
+
 ## Supported File Types
 
 | Format | Extension | Library Used |
@@ -341,7 +483,10 @@ The indexer will:
 | Word | .docx | python-docx |
 | PDF | .pdf | PyPDF2 |
 | Excel | .xlsx | openpyxl |
+| Excel (Legacy) | .xls | pandas + xlrd |
 | CSV | .csv | pandas |
+| Text | .txt | Built-in |
+| PowerShell | .ps1 | Built-in |
 | Images | .jpg, .png, .gif, .bmp, .tiff | Pillow + pytesseract |
 
 ## Troubleshooting
@@ -360,16 +505,24 @@ The indexer will:
 - Run `python indexer.py` first to create the database
 - The database is created in the same folder as the scripts
 
+### Cannot access from other computers
+- Open **DocumentIndexer.exe**
+- Enter your computer's network IP address (e.g., 192.168.1.100) in "Server IP Address"
+- Click **"💾 Save Server Config"**
+- Restart DocumentSearch.exe or DocumentSearchGUI.exe
+- Other computers can now access at http://YOUR-IP:9000
+
 ## Future Enhancements
 
 Potential improvements:
 - Advanced search syntax (AND, OR, NOT operators)
-- Filter by file type, date, size
-- Export search results
-- Document preview
+- Export search results to CSV/Excel
+- Document preview in browser
 - Multi-language support
 - Scheduled automatic indexing
 - Tag and categorize documents
+- Search history and saved searches
+- Duplicate file detection
 
 ## License
 

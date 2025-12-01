@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document Search API Integration Example</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 40px;
+            background: #f5f5f5;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: #167E27;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        .api-endpoint {
+            background: #f8f8f8;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 13px;
+            display: inline-block;
+            margin: 5px 0;
+        }
+
+        .search-section {
+            margin-bottom: 30px;
+        }
+
+        .search-box {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #167E27;
+        }
+
+        button {
+            padding: 12px 24px;
+            background: #167E27;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #0d5c1e;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .result-item {
+            padding: 15px;
+            margin-bottom: 10px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            background: #fafafa;
+        }
+
+        .result-title {
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #167E27;
+        }
+
+        .result-path {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+            font-family: monospace;
+        }
+
+        .result-snippet {
+            font-size: 13px;
+            color: #555;
+            margin: 10px 0;
+            padding: 10px;
+            background: white;
+            border-left: 3px solid #167E27;
+        }
+
+        .result-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .result-actions button {
+            padding: 6px 12px;
+            font-size: 12px;
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .result-actions button:hover {
+            background: #167E27;
+            color: white;
+        }
+
+        .info-box {
+            background: #e8f5e9;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            border-left: 4px solid #167E27;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: #f8f8f8;
+            padding: 15px;
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #167E27;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        .popular-words {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .word-tag {
+            background: #167E27;
+            color: white;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+        }
+
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 10px 0;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+
+        code {
+            background: #f5f5f5;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+            font-size: 13px;
+        }
+
+        pre {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 10px 0;
+            font-size: 12px;
+        }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin: 30px 0 15px 0;
+            color: #167E27;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Document Search API Integration Example</h1>
+        <p class="subtitle">A simple example showing how to integrate the SuperSearch Local Docs API into your web page</p>
+
+        <div class="info-box">
+            <strong>API Configuration:</strong><br>
+            Server: <span class="api-endpoint" id="apiServer">http://127.0.0.1:9000</span><br>
+            <small>Update the <code>API_BASE_URL</code> constant in the JavaScript section to match your server configuration.</small>
+        </div>
+
+        <!-- Stats Section -->
+        <div class="section-title">Database Statistics</div>
+        <div class="stats" id="stats">
+            <div class="loading">Loading stats...</div>
+        </div>
+
+        <!-- Popular Words Section -->
+        <div class="section-title">Popular Words</div>
+        <div class="popular-words" id="popularWords">
+            <div class="loading">Loading...</div>
+        </div>
+
+        <!-- Search Section -->
+        <div class="section-title">Search Documents</div>
+        <div class="search-section">
+            <div class="search-box">
+                <input
+                    type="text"
+                    id="searchInput"
+                    placeholder="Enter search query (e.g., 'invoice', 'contract', 'sales report')"
+                    onkeypress="if(event.key==='Enter') performSearch()">
+                <button onclick="performSearch()" id="searchBtn">Search</button>
+            </div>
+            <div id="results"></div>
+        </div>
+
+        <!-- API Documentation -->
+        <div class="section-title">Available API Endpoints</div>
+        <div style="background: #f8f8f8; padding: 20px; border-radius: 6px;">
+            <h3 style="margin-bottom: 15px;">1. Search Documents</h3>
+            <div class="api-endpoint">POST /api/search</div>
+            <pre>{
+  "query": "search terms",
+  "page": 1,
+  "per_page": 20,
+  "file_types": ["Word Document", "PDF Document", "Excel Spreadsheet"]
+}</pre>
+
+            <h3 style="margin: 20px 0 15px 0;">2. Get Statistics</h3>
+            <div class="api-endpoint">GET /api/stats</div>
+            <p style="margin-top: 10px; font-size: 13px;">Returns total documents, databases, and last update time.</p>
+
+            <h3 style="margin: 20px 0 15px 0;">3. Get Popular Words</h3>
+            <div class="api-endpoint">GET /api/top-words</div>
+            <p style="margin-top: 10px; font-size: 13px;">Returns the top 10 most common words across all documents.</p>
+
+            <h3 style="margin: 20px 0 15px 0;">4. Open File</h3>
+            <div class="api-endpoint">POST /api/file/open</div>
+            <pre>{ "file_path": "C:\\path\\to\\file.docx" }</pre>
+
+            <h3 style="margin: 20px 0 15px 0;">5. Open Folder</h3>
+            <div class="api-endpoint">POST /api/file/open-folder</div>
+            <pre>{ "file_path": "C:\\path\\to\\file.docx" }</pre>
+        </div>
+    </div>
+
+    <script>
+        // =================================================================
+        // CONFIGURATION
+        // =================================================================
+        // Change this to match your server's IP and port
+        const API_BASE_URL = 'http://127.0.0.1:9000';
+
+        // Update the displayed API server
+        document.getElementById('apiServer').textContent = API_BASE_URL;
+
+        // =================================================================
+        // 1. LOAD STATISTICS
+        // =================================================================
+        async function loadStats() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/stats`);
+                const data = await response.json();
+
+                document.getElementById('stats').innerHTML = `
+                    <div class="stat-card">
+                        <div class="stat-value">${data.total_documents?.toLocaleString() || 0}</div>
+                        <div class="stat-label">Total Documents</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${data.total_databases || 0}</div>
+                        <div class="stat-label">Databases</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${data.last_update || 'Never'}</div>
+                        <div class="stat-label">Last Updated</div>
+                    </div>
+                `;
+            } catch (error) {
+                document.getElementById('stats').innerHTML =
+                    `<div class="error">Failed to load stats: ${error.message}</div>`;
+            }
+        }
+
+        // =================================================================
+        // 2. LOAD POPULAR WORDS
+        // =================================================================
+        async function loadPopularWords() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/top-words`);
+                const data = await response.json();
+
+                if (data.words && data.words.length > 0) {
+                    document.getElementById('popularWords').innerHTML = data.words
+                        .map(w => `<div class="word-tag">${w.word} (${w.count.toLocaleString()})</div>`)
+                        .join('');
+                } else {
+                    document.getElementById('popularWords').innerHTML =
+                        '<div style="color: #666;">No popular words available yet</div>';
+                }
+            } catch (error) {
+                document.getElementById('popularWords').innerHTML =
+                    `<div class="error">Failed to load popular words: ${error.message}</div>`;
+            }
+        }
+
+        // =================================================================
+        // 3. PERFORM SEARCH
+        // =================================================================
+        async function performSearch(page = 1) {
+            const query = document.getElementById('searchInput').value.trim();
+            const resultsDiv = document.getElementById('results');
+            const searchBtn = document.getElementById('searchBtn');
+
+            if (!query) {
+                resultsDiv.innerHTML = '<div class="error">Please enter a search query</div>';
+                return;
+            }
+
+            // Disable button and show loading
+            searchBtn.disabled = true;
+            searchBtn.textContent = 'Searching...';
+            resultsDiv.innerHTML = '<div class="loading">Searching documents...</div>';
+
+            try {
+                // Make the API call
+                const response = await fetch(`${API_BASE_URL}/api/search`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        query: query,
+                        page: page,
+                        per_page: 10,
+                        // Optional: filter by file types
+                        // file_types: ['Word Document', 'PDF Document', 'Excel Spreadsheet']
+                    })
+                });
+
+                const data = await response.json();
+
+                // Display results
+                if (data.results && data.results.length > 0) {
+                    resultsDiv.innerHTML = `
+                        <div style="margin-bottom: 15px; color: #666;">
+                            Found ${data.total} results (showing page ${data.page} of ${data.total_pages})
+                        </div>
+                        ${data.results.map(result => `
+                            <div class="result-item">
+                                <div class="result-title">${result.file_name}</div>
+                                <div class="result-path">${result.file_path}</div>
+                                <div class="result-snippet">${result.snippet}</div>
+                                <div style="font-size: 12px; color: #888; margin-top: 5px;">
+                                    Type: ${result.file_type} |
+                                    Size: ${formatFileSize(result.file_size)} |
+                                    Modified: ${formatDate(result.modified_date)}
+                                </div>
+                                <div class="result-actions">
+                                    <button onclick="openFile('${escapeForJS(result.file_path)}')">
+                                        📂 Open File
+                                    </button>
+                                    <button onclick="openFolder('${escapeForJS(result.file_path)}')">
+                                        📁 Open Folder
+                                    </button>
+                                    <button onclick="copyPath('${escapeForJS(result.file_path)}')">
+                                        📋 Copy Path
+                                    </button>
+                                </div>
+                            </div>
+                        `).join('')}
+                    `;
+                } else {
+                    resultsDiv.innerHTML = '<div style="text-align: center; padding: 20px; color: #666;">No results found</div>';
+                }
+
+            } catch (error) {
+                resultsDiv.innerHTML = `<div class="error">Search failed: ${error.message}</div>`;
+            } finally {
+                searchBtn.disabled = false;
+                searchBtn.textContent = 'Search';
+            }
+        }
+
+        // =================================================================
+        // 4. OPEN FILE
+        // =================================================================
+        async function openFile(filePath) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/file/open`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ file_path: filePath })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    alert('✓ File opened successfully');
+                } else {
+                    alert('Error: ' + (data.error || 'Failed to open file'));
+                }
+            } catch (error) {
+                alert('Network error: ' + error.message);
+            }
+        }
+
+        // =================================================================
+        // 5. OPEN FOLDER
+        // =================================================================
+        async function openFolder(filePath) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/file/open-folder`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ file_path: filePath })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    alert('✓ Folder opened successfully');
+                } else {
+                    alert('Error: ' + (data.error || 'Failed to open folder'));
+                }
+            } catch (error) {
+                alert('Network error: ' + error.message);
+            }
+        }
+
+        // =================================================================
+        // 6. COPY PATH TO CLIPBOARD
+        // =================================================================
+        function copyPath(filePath) {
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(filePath).then(() => {
+                    alert('✓ Path copied to clipboard');
+                }).catch(() => {
+                    prompt('Copy this path:', filePath);
+                });
+            } else {
+                prompt('Copy this path:', filePath);
+            }
+        }
+
+        // =================================================================
+        // UTILITY FUNCTIONS
+        // =================================================================
+
+        // Escape string for safe use in JavaScript strings
+        function escapeForJS(str) {
+            return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
+        }
+
+        // Format file size
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        // Format date
+        function formatDate(dateStr) {
+            if (!dateStr) return 'Unknown';
+            const date = new Date(dateStr);
+            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+        }
+
+        // =================================================================
+        // INITIALIZE PAGE
+        // =================================================================
+        window.addEventListener('DOMContentLoaded', () => {
+            loadStats();
+            loadPopularWords();
+        });
+    </script>
+</body>
+</html>
