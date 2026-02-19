@@ -12,16 +12,16 @@ This implementation adds two major features:
 ### 1. Multi-Database Support ✅
 
 **Files Created:**
-- [database_manager.py](database_manager.py) - Central database management module
+- [database_manager.py](../database_manager.py) - Central database management module
 - [MULTI_DATABASE_ARCHITECTURE.md](MULTI_DATABASE_ARCHITECTURE.md) - Complete documentation
 
 **Files Modified:**
-- [config.py](config.py) - Added `DATABASES_FOLDER` path function
-- [indexer.py](indexer.py) - Accept custom `document_path` and `db_path` parameters
-- [indexer_gui.py](indexer_gui.py) - Complete rewrite for multi-folder support
-- [server.py](server.py) - Query all databases and merge results
-- [build_exe.py](build_exe.py) - Include database_manager.py
-- [build_indexer_exe.py](build_indexer_exe.py) - Include database_manager.py
+- [config.py](../config.py) - Added `DATABASES_FOLDER` path function
+- [indexer.py](../indexer.py) - Accept custom `document_path` and `db_path` parameters
+- [indexer_gui.py](../indexer_gui.py) - Complete rewrite for multi-folder support
+- [server.py](../server.py) - Query all databases and merge results
+- [build_exe.py](../build_exe.py) - Include database_manager.py
+- [build_indexer_exe.py](../build_indexer_exe.py) - Include database_manager.py
 
 **How It Works:**
 - Databases stored in `databases/` subfolder
@@ -32,7 +32,7 @@ This implementation adds two major features:
 ### 2. Parallel Folder Indexing with Dynamic Reallocation ✅
 
 **Files Modified:**
-- [indexer_gui.py](indexer_gui.py) - Added ProcessPoolExecutor with work-stealing
+- [indexer_gui.py](../indexer_gui.py) - Added ProcessPoolExecutor with work-stealing
 
 **Files Created:**
 - [PARALLEL_FOLDER_INDEXING.md](PARALLEL_FOLDER_INDEXING.md) - Complete documentation

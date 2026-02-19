@@ -216,7 +216,7 @@ Delete `user_config.json` or click "Reset to Defaults" in Settings.
 
 - Read [SETTINGS.md](SETTINGS.md) for detailed configuration options
 - See [BUILD_INSTRUCTIONS.md](BUILD_INSTRUCTIONS.md) for deployment info
-- Check [README.md](README.md) for complete feature documentation
+- Check [README.md](../README.md) for complete feature documentation
 
 ## Support
 

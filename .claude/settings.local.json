@@ -7,7 +7,13 @@
       "Bash(del test_companies.py test_abbreviations.py)",
       "Bash(dir \"C:\\Users\\patrick\\DocumentSearch\\databases\")",
       "Bash(dir:*)",
-      "Bash(cmd /c \"dir \"\"\\192.168.203.207\\Shared Folders\\Retired\\NetDocOld\\2020\\Network doc\\Steve Morris.xlsx\"\"\")"
+      "Bash(cmd /c \"dir \"\"\\192.168.203.207\\Shared Folders\\Retired\\NetDocOld\\2020\\Network doc\\Steve Morris.xlsx\"\"\")",
+      "Bash(while read hash msg)",
+      "Bash(do echo \"=== $msg ===\")",
+      "Bash(git diff-tree:*)",
+      "Bash(done)",
+      "Bash(gh pr list:*)",
+      "Bash(gh issue list:*)"
     ],
     "deny": [],
     "ask": []

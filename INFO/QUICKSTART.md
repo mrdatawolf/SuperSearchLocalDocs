@@ -18,7 +18,7 @@ python indexer.py
 
 This will scan `\\192.168.203.207\Shared Folders` and create a searchable database.
 
-**To change the document location**, edit [config.py](config.py) first.
+**To change the document location**, edit [config.py](../config.py) first.
 
 ## Step 3: Start Searching
 
@@ -39,14 +39,14 @@ Then open your browser to: **http://127.0.0.1:9000**
 
 **Can't access network path?**
 - Check that `\\192.168.203.207\Shared Folders` is accessible
-- Update the path in [config.py](config.py) if needed
+- Update the path in [config.py](../config.py) if needed
 
 **Database not found?**
 - Run `python indexer.py` first
 
 **Want to index local files instead?**
-- Edit [config.py](config.py) and change `DOCUMENT_PATH` to a local folder
+- Edit [config.py](../config.py) and change `DOCUMENT_PATH` to a local folder
 
 ---
 
-For full documentation, see [README.md](README.md)
+For full documentation, see [README.md](../README.md)
